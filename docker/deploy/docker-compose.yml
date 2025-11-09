@@ -1,0 +1,52 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: fullstack_db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb -q"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - fullstack-network
+
+  # Fullstack Application (Backend + Frontend)
+  app:
+    image: fullstack_app:latest
+    container_name: fullstack_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql://user:pass@postgres:5432/mydb
+      NODE_ENV: production
+      PORT: 5000
+    restart: unless-stopped
+    networks:
+      - fullstack-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  db-data:
+    driver: local
+
+networks:
+  fullstack-network:
+    driver: bridge
