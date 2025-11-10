@@ -1,0 +1,47 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: dev_postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Development Container (Your Coding Environment)
+  dev:
+    build:
+      context: ../..
+      dockerfile: docker/dev/Dockerfile
+    container_name: dev_container
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/mydb
+      - NODE_ENV=development
+    ports:
+      - "3000:3000"  # Frontend
+      - "5000:5000"  # Backend
+    volumes:
+      - ../..:/workspace
+      - vscode-server:/home/node/.vscode-server
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    restart: always
+    command: sleep infinity
+
+volumes:
+  postgres_data:
+  vscode-server:
