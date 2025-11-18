@@ -1,7 +1,7 @@
 {
-  "name": "fullstack-backend",
+  "name": "recifind-backend",
   "version": "1.0.0",
-  "description": "Express backend with PostgreSQL",
+  "description": "ReciFind API - Express backend with PostgreSQL",
   "main": "index.js",
   "scripts": {
     "dev": "nodemon index.js",
