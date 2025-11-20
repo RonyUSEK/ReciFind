@@ -15,12 +15,17 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://user:pass@postgres:5432/mydb',
 });
 
+// Make pool available to routes
+app.locals.pool = pool;
+
 // Auto-initialize database on startup
 async function initializeDatabaseIfNeeded() {
   try {
     // Check if tables exist by querying users table
     await pool.query('SELECT 1 FROM users LIMIT 1');
-    console.log('✓ Database already initialized');
+    if (process.env.NODE_ENV !== 'test') {
+      console.log('✓ Database already initialized');
+    }
   } catch (error) {
     // Tables don't exist - initialize database
     console.log('⚙️  Database not initialized, setting up...');
@@ -58,6 +63,10 @@ initializeDatabaseIfNeeded().catch(err => {
 });
 
 // API Routes
+
+// Authentication routes
+const authRoutes = require('./src/routes/auth');
+app.use('/api/auth', authRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
@@ -168,16 +177,18 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log('');
-  console.log('======================================');
-  console.log(`✓ ReciFind API running on port ${PORT}`);
-  console.log(`  Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`  Database: ${pool.options.host || 'localhost'}:${pool.options.port || 5432}`);
-  console.log('======================================');
-  console.log('');
-});
+// Start server (only if not in test mode)
+// Check if this file is being run directly (not required by another module)
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log('');
+    console.log('======================================');
+    console.log(`✓ ReciFind API running on port ${PORT}`);
+    console.log(`  Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log('======================================');
+    console.log('');
+  });
+}
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
@@ -185,3 +196,6 @@ process.on('SIGTERM', async () => {
   await pool.end();
   process.exit(0);
 });
+
+// Export app for testing
+module.exports = app;
