@@ -9,25 +9,25 @@ TRUNCATE TABLE collection_recipes, recipe_collections, chat_sessions, reports, c
 -- USERS (3 per role = 9 total)
 -- ============================================
 -- Password for all demo users: "password123" (hashed with bcrypt, rounds=10)
--- Hash: $2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK (this is a placeholder - will need real bcrypt hash)
+-- Real bcrypt hash for "password123": $2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596
 
 -- Regular Users (role: user)
 INSERT INTO users (email, password_hash, name, role, bio, profile_image) VALUES
-('john.doe@example.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'John Doe', 'user', 'Food lover and home cook. Always looking for new recipes to try!', 'https://i.pravatar.cc/150?img=12'),
-('sarah.smith@example.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'Sarah Smith', 'user', 'Vegetarian food enthusiast. Love trying healthy recipes.', 'https://i.pravatar.cc/150?img=23'),
-('mike.johnson@example.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'Mike Johnson', 'user', 'BBQ master and grilling expert. Meat is my specialty!', 'https://i.pravatar.cc/150?img=33');
+('john.doe@example.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'John Doe', 'user', 'Food lover and home cook. Always looking for new recipes to try!', 'https://i.pravatar.cc/150?img=12'),
+('sarah.smith@example.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'Sarah Smith', 'user', 'Vegetarian food enthusiast. Love trying healthy recipes.', 'https://i.pravatar.cc/150?img=23'),
+('mike.johnson@example.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'Mike Johnson', 'user', 'BBQ master and grilling expert. Meat is my specialty!', 'https://i.pravatar.cc/150?img=33');
 
 -- Chefs (role: chef)
 INSERT INTO users (email, password_hash, name, role, is_verified, reputation_score, bio, profile_image) VALUES
-('chef.maria@example.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'Chef Maria Garcia', 'chef', true, 60, 'Professional chef with 15 years experience in Italian cuisine. Sharing family recipes passed down through generations.', 'https://i.pravatar.cc/150?img=45'),
-('chef.david@example.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'Chef David Lee', 'chef', false, 20, 'Asian fusion chef specializing in modern takes on traditional dishes.', 'https://i.pravatar.cc/150?img=51'),
-('chef.emma@example.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'Chef Emma Wilson', 'chef', true, 55, 'Pastry chef and dessert specialist. Making sweet dreams come true!', 'https://i.pravatar.cc/150?img=26');
+('chef.maria@example.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'Chef Maria Garcia', 'chef', true, 60, 'Professional chef with 15 years experience in Italian cuisine. Sharing family recipes passed down through generations.', 'https://i.pravatar.cc/150?img=45'),
+('chef.david@example.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'Chef David Lee', 'chef', false, 20, 'Asian fusion chef specializing in modern takes on traditional dishes.', 'https://i.pravatar.cc/150?img=51'),
+('chef.emma@example.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'Chef Emma Wilson', 'chef', true, 55, 'Pastry chef and dessert specialist. Making sweet dreams come true!', 'https://i.pravatar.cc/150?img=26');
 
 -- Admins (role: admin)
 INSERT INTO users (email, password_hash, name, role, bio, profile_image) VALUES
-('admin@recifind.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'Admin User', 'admin', 'ReciFind platform administrator. Here to keep things running smoothly!', 'https://i.pravatar.cc/150?img=68'),
-('moderator@recifind.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'Jane Moderator', 'admin', 'Content moderator ensuring quality recipes for everyone.', 'https://i.pravatar.cc/150?img=47'),
-('supervisor@recifind.com', '$2b$10$rKXwYvVqN2H0VzN7qvHXKO5YGmz5lPpXCvZjCw1DmGX0jzN2qvHXK', 'Tom Supervisor', 'admin', 'Platform supervisor and chef approval specialist.', 'https://i.pravatar.cc/150?img=59');
+('admin@recifind.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'Admin User', 'admin', 'ReciFind platform administrator. Here to keep things running smoothly!', 'https://i.pravatar.cc/150?img=68'),
+('moderator@recifind.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'Jane Moderator', 'admin', 'Content moderator ensuring quality recipes for everyone.', 'https://i.pravatar.cc/150?img=47'),
+('supervisor@recifind.com', '$2b$10$Mn61Hiu1lfPvSCxQ/s2TmOwAvsxS1bZ2C7LEI7tHQBQSV95P.G596', 'Tom Supervisor', 'admin', 'Platform supervisor and chef approval specialist.', 'https://i.pravatar.cc/150?img=59');
 
 -- ============================================
 -- INGREDIENTS (Common cooking ingredients)

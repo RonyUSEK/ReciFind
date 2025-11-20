@@ -46,3 +46,23 @@ Element.prototype.scrollIntoView = jest.fn();
 beforeEach(() => {
   localStorage.clear();
 });
+
+// Suppress React 18 ReactDOMTestUtils deprecation warning
+// This warning is from React Testing Library's internal implementation
+// and will be fixed in a future version of RTL
+const originalError = console.error;
+beforeAll(() => {
+  console.error = (...args) => {
+    if (
+      typeof args[0] === 'string' &&
+      args[0].includes('ReactDOMTestUtils.act')
+    ) {
+      return;
+    }
+    originalError.call(console, ...args);
+  };
+});
+
+afterAll(() => {
+  console.error = originalError;
+});
