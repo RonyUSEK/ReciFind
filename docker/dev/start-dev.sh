@@ -5,6 +5,20 @@ echo ""
 echo "🚀 Starting Backend and Frontend..."
 echo ""
 
+# Check if database needs initialization
+echo "🔍 Checking database status..."
+if ! psql -h postgres -U user -d mydb -tAc "SELECT 1 FROM users LIMIT 1" 2>/dev/null | grep -q 1; then
+    echo "⚠️  Database not initialized. Would you like to initialize it now? (y/n)"
+    read -t 5 -n 1 -r INIT_DB || INIT_DB="y"
+    echo ""
+    if [[ $INIT_DB =~ ^[Yy]$ ]] || [[ -z $INIT_DB ]]; then
+        echo "🔨 Initializing database with ReciFind schema..."
+        cd /workspace/backend
+        node src/db/init.js
+        echo ""
+    fi
+fi
+
 # Install/update dependencies
 echo "📦 Checking dependencies..."
 

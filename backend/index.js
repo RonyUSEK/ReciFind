@@ -12,73 +12,50 @@ app.use(express.json());
 
 // Database connection
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://user:pass@localhost:5432/mydb',
+  connectionString: process.env.DATABASE_URL || 'postgresql://user:pass@postgres:5432/mydb',
 });
 
-// Initialize database tables for ReciFind
-async function initDatabase() {
+// Auto-initialize database on startup
+async function initializeDatabaseIfNeeded() {
   try {
-    // Users table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        username VARCHAR(255) UNIQUE NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        role VARCHAR(50) DEFAULT 'user',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Recipes table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS recipes (
-        id SERIAL PRIMARY KEY,
-        title VARCHAR(255) NOT NULL,
-        description TEXT,
-        chef_id INTEGER REFERENCES users(id),
-        prep_time INTEGER,
-        cook_time INTEGER,
-        servings INTEGER,
-        difficulty VARCHAR(50),
-        image_url TEXT,
-        rating DECIMAL(3, 2) DEFAULT 0,
-        reviews_count INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Ingredients table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS ingredients (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) UNIQUE NOT NULL,
-        category VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Recipe-Ingredients relationship table
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS recipe_ingredients (
-        id SERIAL PRIMARY KEY,
-        recipe_id INTEGER REFERENCES recipes(id) ON DELETE CASCADE,
-        ingredient_id INTEGER REFERENCES ingredients(id),
-        quantity VARCHAR(100),
-        unit VARCHAR(50),
-        UNIQUE(recipe_id, ingredient_id)
-      )
-    `);
-
-    console.log('✓ ReciFind database initialized');
+    // Check if tables exist by querying users table
+    await pool.query('SELECT 1 FROM users LIMIT 1');
+    console.log('✓ Database already initialized');
   } catch (error) {
-    console.error('❌ Database initialization error:', error);
+    // Tables don't exist - initialize database
+    console.log('⚙️  Database not initialized, setting up...');
+    console.log('   Creating tables and loading demo data...');
+    
+    const fs = require('fs');
+    const initPath = path.join(__dirname, 'src/db/init.js');
+    
+    if (fs.existsSync(initPath)) {
+      try {
+        // Run initialization script in silent mode (no interactive prompts)
+        const { initializeDatabase } = require('./src/db/init.js');
+        await initializeDatabase(true); // true = silent mode
+        console.log('✓ Database initialized with demo data');
+        console.log('');
+        console.log('🔐 Demo Login Credentials:');
+        console.log('   User:  john.doe@example.com / password123');
+        console.log('   Chef:  chef.maria@example.com / password123');
+        console.log('   Admin: admin@recifind.com / password123');
+        console.log('');
+      } catch (initError) {
+        console.error('❌ Database initialization failed:', initError.message);
+        console.error('   The application may not work correctly.');
+      }
+    } else {
+      console.warn('⚠️  Database initialization script not found');
+      console.warn('   The application may not work correctly.');
+    }
   }
 }
 
-// Initialize on startup
-initDatabase();
+// Initialize database and start server
+initializeDatabaseIfNeeded().catch(err => {
+  console.error('❌ Database check error:', err.message);
+});
 
 // API Routes
 
