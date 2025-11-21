@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 // --- MOCK DATA ---
@@ -109,6 +110,7 @@ const RecipeCard = React.memo(({ recipe }) => (
 ));
 
 const HomePage = ({ theme, toggleTheme }) => {
+  const navigate = useNavigate();
   const [activeIngredients, setActiveIngredients] = useState(new Map());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
@@ -158,10 +160,36 @@ const HomePage = ({ theme, toggleTheme }) => {
   }, [selectedSuggestionIndex]);
 
   const handleSearch = () => {
-    if (activeIngredients.size > 0) {
-      alert(`Searching for recipes with: ${Array.from(activeIngredients.keys()).join(', ')}`);
+    // Build search params from active ingredients
+    const params = new URLSearchParams();
+    
+    // Separate included and excluded ingredients
+    const includedIngredients = [];
+    const excludedIngredients = [];
+    
+    activeIngredients.forEach((mode, ingredient) => {
+      if (mode === 'include') {
+        includedIngredients.push(ingredient.toLowerCase());
+      } else if (mode === 'exclude') {
+        excludedIngredients.push(ingredient.toLowerCase());
+      }
+    });
+    
+    // Add to params if any ingredients selected
+    if (includedIngredients.length > 0) {
+      params.append('ingredients', includedIngredients.join(','));
+    }
+    
+    if (excludedIngredients.length > 0) {
+      params.append('exclude', excludedIngredients.join(','));
+    }
+    
+    // Navigate to search page with params
+    if (includedIngredients.length > 0 || excludedIngredients.length > 0) {
+      navigate(`/search?${params.toString()}`);
     } else {
-      alert('Please select at least one ingredient to search.');
+      // If no ingredients, just go to search page
+      navigate('/search');
     }
   };
 

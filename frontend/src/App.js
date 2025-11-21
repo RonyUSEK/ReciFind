@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { API_BASE_URL } from './utils/api';
 import HomePage from './pages/HomePage';
+import SearchPage from './pages/SearchPage';
 import Dashboard from './pages/Dashboard';
 import Login from './components/Auth/Login';
 import Register from './components/Auth/Register';
@@ -21,7 +23,7 @@ const Header = ({ theme, toggleTheme }) => {
           <span className="text-orange-600">Find</span>
         </Link>
 
-        <div className="flex items-center gap-2 sm:gap-0">
+         <div className="flex items-center gap-2 sm:gap-0">
           <button 
             id="theme-toggle" 
             onClick={toggleTheme}
@@ -51,8 +53,8 @@ const Header = ({ theme, toggleTheme }) => {
                 <span className="hidden sm:inline">{user?.name}</span>
               </button>
               
-              {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 border border-gray-200 dark:border-gray-700">
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 border border-gray-200 dark:border-gray-700">
                   <Link 
                     to="/dashboard" 
                     onClick={() => setShowUserMenu(false)}
@@ -71,7 +73,12 @@ const Header = ({ theme, toggleTheme }) => {
                     Log Out
                   </button>
                 </div>
-              )}
+                )}
+                {process.env.NODE_ENV !== 'production' && (
+                  <div className="ml-4 text-xs text-gray-600 dark:text-gray-300">
+                    <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">API: {API_BASE_URL}</span>
+                  </div>
+                )}
             </div>
           ) : (
             <Link to="/login">
@@ -143,6 +150,11 @@ const AppContent = () => {
       <Route path="/" element={
         <Layout theme={theme} toggleTheme={toggleTheme}>
           <HomePage theme={theme} toggleTheme={toggleTheme} />
+        </Layout>
+      } />
+      <Route path="/search" element={
+        <Layout theme={theme} toggleTheme={toggleTheme}>
+          <SearchPage />
         </Layout>
       } />
       <Route path="/dashboard" element={

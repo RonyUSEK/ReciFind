@@ -68,6 +68,10 @@ initializeDatabaseIfNeeded().catch(err => {
 const authRoutes = require('./src/routes/auth');
 app.use('/api/auth', authRoutes);
 
+// Recipe routes
+const recipeRoutes = require('./src/routes/recipes');
+app.use('/api/recipes', recipeRoutes);
+
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
   try {
@@ -83,74 +87,6 @@ app.get('/api/health', async (req, res) => {
       database: 'disconnected',
       error: error.message 
     });
-  }
-});
-
-// Get all recipes
-app.get('/api/recipes', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT r.*, u.username as chef_name
-      FROM recipes r
-      LEFT JOIN users u ON r.chef_id = u.id
-      ORDER BY r.created_at DESC
-    `);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching recipes:', error);
-    res.status(500).json({ error: 'Failed to fetch recipes' });
-  }
-});
-
-// Search recipes by ingredients
-app.post('/api/recipes/search', async (req, res) => {
-  const { includeIngredients, excludeIngredients } = req.body;
-  
-  try {
-    // TODO: Implement ingredient-based recipe search
-    // This is a placeholder for future implementation
-    res.json({ 
-      message: 'Recipe search endpoint - coming soon!',
-      includeIngredients,
-      excludeIngredients 
-    });
-  } catch (error) {
-    console.error('Error searching recipes:', error);
-    res.status(500).json({ error: 'Failed to search recipes' });
-  }
-});
-
-// Get recipe by ID
-app.get('/api/recipes/:id', async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const result = await pool.query(`
-      SELECT r.*, u.username as chef_name
-      FROM recipes r
-      LEFT JOIN users u ON r.chef_id = u.id
-      WHERE r.id = $1
-    `, [id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Recipe not found' });
-    }
-    
-    // Get ingredients for this recipe
-    const ingredientsResult = await pool.query(`
-      SELECT i.name, ri.quantity, ri.unit
-      FROM recipe_ingredients ri
-      JOIN ingredients i ON ri.ingredient_id = i.id
-      WHERE ri.recipe_id = $1
-    `, [id]);
-    
-    res.json({
-      ...result.rows[0],
-      ingredients: ingredientsResult.rows
-    });
-  } catch (error) {
-    console.error('Error fetching recipe:', error);
-    res.status(500).json({ error: 'Failed to fetch recipe' });
   }
 });
 
