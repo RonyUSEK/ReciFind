@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import api from '../utils/api';
 
 // --- MOCK DATA ---
 const mockIngredients = ['Beef', 'Cheese', 'Eggs', 'Potatoes', 'Veggies'];
@@ -86,34 +87,87 @@ const IngredientPill = React.memo(({ ingredient, mode, onToggleMode }) => {
   );
 });
 
-const RecipeCard = React.memo(({ recipe }) => (
-  <div className="recipe-card bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden cursor-pointer border border-gray-100 dark:border-gray-700 hover:shadow-2xl hover:scale-[1.02] transition-all duration-300">
-    <img src={recipe.imageUrl} alt={recipe.title} className="w-full h-48 object-cover" />
-    <div className="p-5">
-      <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{recipe.title}</h3>
-      
-      <div className="flex items-center text-yellow-500 mb-2">
-        <StarIcon />
-        <span className="ml-1 text-sm text-gray-600 dark:text-gray-400 font-semibold">
-          {recipe.rating} ({recipe.reviews} Reviews)
-        </span>
-      </div>
-      
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">{recipe.description}</p>
-      
-      <div className="flex justify-between items-center text-gray-600 dark:text-gray-400 text-sm">
-        <span><span className="font-bold text-green-600">{recipe.match}%</span> Match</span>
-        <span>{recipe.time}</span>
+const RecipeCard = React.memo(({ recipe }) => {
+  const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
+  const imageUrl = recipe.image_url || recipe.imageUrl || 'https://placehold.co/600x400/87CEEB/ffffff?text=Recipe';
+  const likeCount = recipe.like_count || recipe.likes || 0;
+  
+  return (
+    <div className="recipe-card bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden cursor-pointer border border-gray-100 dark:border-gray-700 hover:shadow-2xl hover:scale-[1.02] transition-all duration-300">
+      <img src={imageUrl} alt={recipe.title} className="w-full h-48 object-cover" />
+      <div className="p-5">
+        <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{recipe.title}</h3>
+        
+        {recipe.chef_name && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">by {recipe.chef_name}</p>
+        )}
+        
+        {likeCount > 0 && (
+          <div className="flex items-center text-yellow-500 mb-2">
+            <StarIcon />
+            <span className="ml-1 text-sm text-gray-600 dark:text-gray-400 font-semibold">
+              {likeCount} {likeCount === 1 ? 'like' : 'likes'}
+            </span>
+          </div>
+        )}
+        
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-3 line-clamp-2">
+          {recipe.description}
+        </p>
+        
+        <div className="flex justify-between items-center text-gray-600 dark:text-gray-400 text-sm">
+          {recipe.difficulty && (
+            <span className="capitalize font-medium">{recipe.difficulty}</span>
+          )}
+          {totalTime > 0 && (
+            <span>{totalTime} mins</span>
+          )}
+        </div>
       </div>
     </div>
-  </div>
-));
+  );
+});
 
 const HomePage = ({ theme, toggleTheme }) => {
   const navigate = useNavigate();
   const [activeIngredients, setActiveIngredients] = useState(new Map());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+  
+  // State for recipe sections
+  const [featuredRecipe, setFeaturedRecipe] = useState(null);
+  const [popularRecipes, setPopularRecipes] = useState([]);
+  const [recentRecipes, setRecentRecipes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch recipes on mount
+  useEffect(() => {
+    const fetchRecipes = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch all three sections
+        const [featuredRes, popularRes, recentRes] = await Promise.all([
+          api.get('/api/recipes/featured').catch(() => null),
+          api.get('/api/recipes/popular', { params: { limit: 8 } }).catch(() => ({ data: [] })),
+          api.get('/api/recipes/recent', { params: { limit: 8 } }).catch(() => ({ data: [] }))
+        ]);
+        
+        if (featuredRes?.data) {
+          setFeaturedRecipe(featuredRes.data);
+        }
+        
+        setPopularRecipes(popularRes.data || []);
+        setRecentRecipes(recentRes.data || []);
+      } catch (err) {
+        console.error('Error fetching recipes:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchRecipes();
+  }, []);
 
   const toggleIngredientMode = useCallback((ingredient) => {
     setActiveIngredients(prevIngredients => {
@@ -374,59 +428,163 @@ const HomePage = ({ theme, toggleTheme }) => {
           ))}
         </div>
 
-        {/* Recipe of the Day */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden p-4 sm:p-6 lg:p-12 border-b-4 border-orange-500">
-          <div className="lg:flex lg:space-x-12 items-center">
-            <div className="lg:w-1/3 mb-4 sm:mb-6 lg:mb-0 relative">
-              <img src="https://placehold.co/800x600/FF6347/ffffff?text=Roasted+Salmon" alt="Recipe of the Day" className="w-full h-auto object-cover rounded-xl sm:rounded-2xl shadow-xl" />
-              <span className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-orange-500 text-white text-xs font-bold px-2 py-1 sm:px-3 sm:py-1 rounded-full uppercase">Today's Pick</span>
-            </div>
-            <div className="lg:w-2/3">
-              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 dark:text-gray-100 mb-2 sm:mb-3">One-Pan Honey-Garlic Salmon</h2>
-              <div className="flex items-center text-yellow-500 mb-3 sm:mb-4">
-                <StarIcon /><StarIcon /><StarIcon /><StarIcon />
-                <span className="ml-2 text-sm sm:text-base text-gray-600 dark:text-gray-400 font-semibold">4.8 (1,230 Reviews)</span>
+        {/* Featured Recipe Section */}
+        {featuredRecipe && (
+          <div className="bg-white dark:bg-gray-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden p-4 sm:p-6 lg:p-12 border-b-4 border-orange-500">
+            <div className="lg:flex lg:space-x-12 items-center">
+              <div className="lg:w-1/3 mb-4 sm:mb-6 lg:mb-0 relative">
+                <img 
+                  src={featuredRecipe.image_url || 'https://placehold.co/800x600/FF6347/ffffff?text=Featured+Recipe'} 
+                  alt={featuredRecipe.title} 
+                  className="w-full h-auto object-cover rounded-xl sm:rounded-2xl shadow-xl" 
+                />
+                <span className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-orange-500 text-white text-xs font-bold px-2 py-1 sm:px-3 sm:py-1 rounded-full uppercase">
+                  Today's Pick
+                </span>
               </div>
-              <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-4 sm:mb-6 leading-relaxed">
-                A quick, healthy, and incredibly flavorful dinner that's perfect for a busy weeknight. Ready in under 30 minutes, it uses simple pantry staples like honey, garlic, and soy sauce to create a delicious glaze.
-              </p>
-              <ul className="flex flex-wrap gap-3 sm:gap-4 mb-4 sm:mb-6 text-sm sm:text-base text-gray-700 dark:text-gray-300">
-                <li className="flex items-center">
-                  <span className="font-bold mr-1">Time:</span> 25 mins
-                </li>
-                <li className="flex items-center">
-                  <span className="font-bold mr-1">Servings:</span> 4
-                </li>
-                <li className="flex items-center">
-                  <span className="font-bold mr-1">Difficulty:</span> Easy
-                </li>
-              </ul>
-              <button className="bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold py-3 px-6 sm:px-8 rounded-xl transition duration-300 text-base sm:text-lg shadow-lg w-full sm:w-auto touch-manipulation">
-                View Full Recipe
-              </button>
+              <div className="lg:w-2/3">
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 dark:text-gray-100 mb-2 sm:mb-3">
+                  {featuredRecipe.title}
+                </h2>
+                {featuredRecipe.chef_name && (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                    by Chef {featuredRecipe.chef_name}
+                  </p>
+                )}
+                <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400 mb-4 sm:mb-6 leading-relaxed">
+                  {featuredRecipe.description}
+                </p>
+                <ul className="flex flex-wrap gap-3 sm:gap-4 mb-4 sm:mb-6 text-sm sm:text-base text-gray-700 dark:text-gray-300">
+                  {(featuredRecipe.prep_time || featuredRecipe.cook_time) && (
+                    <li className="flex items-center">
+                      <span className="font-bold mr-1">Time:</span> {(featuredRecipe.prep_time || 0) + (featuredRecipe.cook_time || 0)} mins
+                    </li>
+                  )}
+                  {featuredRecipe.servings && (
+                    <li className="flex items-center">
+                      <span className="font-bold mr-1">Servings:</span> {featuredRecipe.servings}
+                    </li>
+                  )}
+                  {featuredRecipe.difficulty && (
+                    <li className="flex items-center">
+                      <span className="font-bold mr-1">Difficulty:</span> {featuredRecipe.difficulty}
+                    </li>
+                  )}
+                </ul>
+                <button className="bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold py-3 px-6 sm:px-8 rounded-xl transition duration-300 text-base sm:text-lg shadow-lg w-full sm:w-auto touch-manipulation">
+                  View Full Recipe
+                </button>
+              </div>
             </div>
           </div>
+        )}
+        
+        {loading && !featuredRecipe && (
+          <div className="bg-white dark:bg-gray-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden p-4 sm:p-6 lg:p-12 animate-pulse">
+            <div className="lg:flex lg:space-x-12 items-center">
+              <div className="lg:w-1/3 mb-4 sm:mb-6 lg:mb-0">
+                <div className="bg-gray-300 dark:bg-gray-700 h-64 rounded-xl"></div>
+              </div>
+              <div className="lg:w-2/3 space-y-4">
+                <div className="bg-gray-300 dark:bg-gray-700 h-8 w-3/4 rounded"></div>
+                <div className="bg-gray-300 dark:bg-gray-700 h-4 w-full rounded"></div>
+                <div className="bg-gray-300 dark:bg-gray-700 h-4 w-full rounded"></div>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Quick Filter Tabs */}
+      <section className="py-8 sm:py-12">
+        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6 sm:mb-8 border-b-2 border-green-500 pb-2 inline-block">Browse Recipes</h2>
+        
+        <div className="flex gap-2 sm:gap-3 mb-6 sm:mb-8 overflow-x-auto pb-2 scrollbar-hide">
+          <button 
+            onClick={() => navigate('/search?maxTime=30&difficulty=easy')}
+            className="bg-green-600 text-white hover:bg-green-700 font-semibold py-2 px-4 sm:px-5 rounded-full shadow-md whitespace-nowrap text-sm sm:text-base touch-manipulation active:bg-green-800"
+          >
+            Quick & Easy
+          </button>
+          <button 
+            onClick={() => navigate('/search?difficulty=easy')}
+            className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation"
+          >
+            High Protein
+          </button>
+          <button 
+            onClick={() => navigate('/search')}
+            className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation"
+          >
+            Vegetarian
+          </button>
+          <button 
+            onClick={() => navigate('/search')}
+            className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation"
+          >
+            Desserts
+          </button>
         </div>
       </section>
 
-      {/* Recommended Recipes Section */}
+      {/* Popular Recipes Section */}
       <section className="py-8 sm:py-12">
-        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6 sm:mb-8 border-b-2 border-green-500 pb-2 inline-block">Recommended Recipes</h2>
+        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6 sm:mb-8 border-b-2 border-blue-500 pb-2 inline-block">
+          Popular Recipes
+        </h2>
 
-        {/* Filter Tabs */}
-        <div className="flex gap-2 sm:gap-3 mb-6 sm:mb-8 overflow-x-auto pb-2 scrollbar-hide">
-          <button className="bg-green-600 text-white font-semibold py-2 px-4 sm:px-5 rounded-full shadow-md whitespace-nowrap text-sm sm:text-base touch-manipulation active:bg-green-700">Quick & Easy</button>
-          <button className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation">High Protein</button>
-          <button className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation">Vegetarian</button>
-          <button className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation">Desserts</button>
-        </div>
+        {loading && popularRecipes.length === 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden animate-pulse">
+                <div className="bg-gray-300 dark:bg-gray-700 h-48"></div>
+                <div className="p-5 space-y-3">
+                  <div className="bg-gray-300 dark:bg-gray-700 h-6 w-3/4 rounded"></div>
+                  <div className="bg-gray-300 dark:bg-gray-700 h-4 w-full rounded"></div>
+                  <div className="bg-gray-300 dark:bg-gray-700 h-4 w-2/3 rounded"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : popularRecipes.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
+            {popularRecipes.map(recipe => (
+              <RecipeCard key={recipe.id} recipe={recipe} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-500 dark:text-gray-400 text-center py-8">No popular recipes found.</p>
+        )}
+      </section>
 
-        {/* Recipe Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
-          {mockRecipes.map(recipe => (
-            <RecipeCard key={recipe.id} recipe={recipe} />
-          ))}
-        </div>
+      {/* Recent Recipes Section */}
+      <section className="py-8 sm:py-12">
+        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6 sm:mb-8 border-b-2 border-purple-500 pb-2 inline-block">
+          Recent Recipes
+        </h2>
+
+        {loading && recentRecipes.length === 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden animate-pulse">
+                <div className="bg-gray-300 dark:bg-gray-700 h-48"></div>
+                <div className="p-5 space-y-3">
+                  <div className="bg-gray-300 dark:bg-gray-700 h-6 w-3/4 rounded"></div>
+                  <div className="bg-gray-300 dark:bg-gray-700 h-4 w-full rounded"></div>
+                  <div className="bg-gray-300 dark:bg-gray-700 h-4 w-2/3 rounded"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : recentRecipes.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
+            {recentRecipes.map(recipe => (
+              <RecipeCard key={recipe.id} recipe={recipe} />
+            ))}
+          </div>
+        ) : (
+          <p className="text-gray-500 dark:text-gray-400 text-center py-8">No recent recipes found.</p>
+        )}
       </section>
     </main>
   );

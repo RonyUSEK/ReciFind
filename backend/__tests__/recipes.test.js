@@ -268,6 +268,121 @@ describe('Recipe Search API', () => {
 
   });
 
+  describe('GET /api/recipes/featured', () => {
+    
+    test('should return a featured recipe', async () => {
+      const response = await request(app)
+        .get('/api/recipes/featured')
+        .expect(200);
+      
+      expect(response.body).toHaveProperty('id');
+      expect(response.body).toHaveProperty('title');
+      expect(response.body).toHaveProperty('description');
+      expect(response.body.is_featured).toBe(true);
+      expect(response.body.status).toBe('approved');
+    });
+
+    test('featured recipe should have chef name', async () => {
+      const response = await request(app)
+        .get('/api/recipes/featured')
+        .expect(200);
+      
+      expect(response.body).toHaveProperty('chef_name');
+    });
+  });
+
+  describe('GET /api/recipes/popular', () => {
+    
+    test('should return array of popular recipes', async () => {
+      const response = await request(app)
+        .get('/api/recipes/popular')
+        .expect(200);
+      
+      expect(Array.isArray(response.body)).toBe(true);
+      
+      // all should be approved
+      const allApproved = response.body.every(r => r.status === 'approved');
+      expect(allApproved).toBe(true);
+    });
+
+    test('should respect limit parameter', async () => {
+      const response = await request(app)
+        .get('/api/recipes/popular?limit=3')
+        .expect(200);
+      
+      expect(response.body.length).toBeLessThanOrEqual(3);
+    });
+
+    test('should include like count', async () => {
+      const response = await request(app)
+        .get('/api/recipes/popular?limit=5')
+        .expect(200);
+      
+      if (response.body.length > 0) {
+        expect(response.body[0]).toHaveProperty('like_count');
+      }
+    });
+
+    test('should be sorted by likes descending', async () => {
+      const response = await request(app)
+        .get('/api/recipes/popular?limit=10')
+        .expect(200);
+      
+      // check that likes are in descending order
+      for (let i = 0; i < response.body.length - 1; i++) {
+        const current = parseInt(response.body[i].like_count) || 0;
+        const next = parseInt(response.body[i + 1].like_count) || 0;
+        expect(current).toBeGreaterThanOrEqual(next);
+      }
+    });
+  });
+
+  describe('GET /api/recipes/recent', () => {
+    
+    test('should return array of recent recipes', async () => {
+      const response = await request(app)
+        .get('/api/recipes/recent')
+        .expect(200);
+      
+      expect(Array.isArray(response.body)).toBe(true);
+      
+      // all should be approved
+      const allApproved = response.body.every(r => r.status === 'approved');
+      expect(allApproved).toBe(true);
+    });
+
+    test('should respect limit parameter', async () => {
+      const response = await request(app)
+        .get('/api/recipes/recent?limit=4')
+        .expect(200);
+      
+      expect(response.body.length).toBeLessThanOrEqual(4);
+    });
+
+    test('recipes should be sorted by created_at descending', async () => {
+      const response = await request(app)
+        .get('/api/recipes/recent?limit=10')
+        .expect(200);
+      
+      // check created_at is in descending order (most recent first)
+      for (let i = 0; i < response.body.length - 1; i++) {
+        const currentDate = new Date(response.body[i].created_at);
+        const nextDate = new Date(response.body[i + 1].created_at);
+        expect(currentDate >= nextDate).toBe(true);
+      }
+    });
+
+    test('should include chef name', async () => {
+      const response = await request(app)
+        .get('/api/recipes/recent?limit=5')
+        .expect(200);
+      
+      if (response.body.length > 0) {
+        expect(response.body[0]).toHaveProperty('chef_name');
+      }
+    });
+  });
+
   // Cleanup after tests
   afterAll(async () => {
     await pool.end();
