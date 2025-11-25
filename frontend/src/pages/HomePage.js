@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
@@ -139,6 +139,7 @@ const HomePage = ({ theme, toggleTheme }) => {
   const [popularRecipes, setPopularRecipes] = useState([]);
   const [recentRecipes, setRecentRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('all');
 
   // Fetch recipes on mount
   useEffect(() => {
@@ -168,6 +169,44 @@ const HomePage = ({ theme, toggleTheme }) => {
     
     fetchRecipes();
   }, []);
+
+  // Memoized filtered recipes for performance
+  const filteredRecipes = useMemo(() => {
+    switch (activeFilter) {
+      case 'quick-easy':
+        return popularRecipes.filter(recipe => {
+          const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
+          return recipe.difficulty === 'easy' && totalTime <= 30;
+        });
+      case 'high-protein':
+        return popularRecipes.filter(recipe => 
+          recipe.title.toLowerCase().includes('chicken') || 
+          recipe.title.toLowerCase().includes('beef') || 
+          recipe.title.toLowerCase().includes('fish') ||
+          recipe.title.toLowerCase().includes('egg') ||
+          recipe.title.toLowerCase().includes('protein')
+        );
+      case 'vegetarian':
+        return popularRecipes.filter(recipe => 
+          !recipe.title.toLowerCase().includes('chicken') && 
+          !recipe.title.toLowerCase().includes('beef') && 
+          !recipe.title.toLowerCase().includes('pork') &&
+          !recipe.title.toLowerCase().includes('fish') &&
+          !recipe.title.toLowerCase().includes('meat')
+        );
+      case 'desserts':
+        return popularRecipes.filter(recipe => 
+          recipe.title.toLowerCase().includes('cake') || 
+          recipe.title.toLowerCase().includes('cookie') || 
+          recipe.title.toLowerCase().includes('pie') ||
+          recipe.title.toLowerCase().includes('chocolate') ||
+          recipe.title.toLowerCase().includes('ice cream') ||
+          recipe.title.toLowerCase().includes('pudding')
+        );
+      default:
+        return popularRecipes;
+    }
+  }, [activeFilter, popularRecipes]);
 
   const toggleIngredientMode = useCallback((ingredient) => {
     setActiveIngredients(prevIngredients => {
@@ -495,45 +534,66 @@ const HomePage = ({ theme, toggleTheme }) => {
         )}
       </section>
 
-      {/* Quick Filter Tabs */}
-      <section className="py-8 sm:py-12">
-        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6 sm:mb-8 border-b-2 border-green-500 pb-2 inline-block">Browse Recipes</h2>
-        
-        <div className="flex gap-2 sm:gap-3 mb-6 sm:mb-8 overflow-x-auto pb-2 scrollbar-hide">
-          <button 
-            onClick={() => navigate('/search?maxTime=30&difficulty=easy')}
-            className="bg-green-600 text-white hover:bg-green-700 font-semibold py-2 px-4 sm:px-5 rounded-full shadow-md whitespace-nowrap text-sm sm:text-base touch-manipulation active:bg-green-800"
-          >
-            Quick & Easy
-          </button>
-          <button 
-            onClick={() => navigate('/search?difficulty=easy')}
-            className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation"
-          >
-            High Protein
-          </button>
-          <button 
-            onClick={() => navigate('/search')}
-            className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation"
-          >
-            Vegetarian
-          </button>
-          <button 
-            onClick={() => navigate('/search')}
-            className="bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 py-2 px-4 sm:px-5 rounded-full border border-gray-300 dark:border-gray-600 whitespace-nowrap text-sm sm:text-base touch-manipulation"
-          >
-            Desserts
-          </button>
-        </div>
-      </section>
-
-      {/* Popular Recipes Section */}
+      {/* Popular Recipes Section with Filters */}
       <section className="py-8 sm:py-12">
         <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6 sm:mb-8 border-b-2 border-blue-500 pb-2 inline-block">
           Popular Recipes
         </h2>
 
-        {loading && popularRecipes.length === 0 ? (
+        <div className="flex gap-2 sm:gap-3 mb-6 sm:mb-8 overflow-x-auto pb-2 scrollbar-hide">
+          <button
+            onClick={() => setActiveFilter('all')}
+            className={`font-semibold py-2 px-4 sm:px-5 rounded-full shadow-md whitespace-nowrap text-sm sm:text-base touch-manipulation ${
+              activeFilter === 'all'
+                ? 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600'
+            }`}
+          >
+            All Recipes
+          </button>
+          <button
+            onClick={() => setActiveFilter('quick-easy')}
+            className={`font-semibold py-2 px-4 sm:px-5 rounded-full shadow-md whitespace-nowrap text-sm sm:text-base touch-manipulation ${
+              activeFilter === 'quick-easy'
+                ? 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600'
+            }`}
+          >
+            Quick & Easy
+          </button>
+          <button
+            onClick={() => setActiveFilter('high-protein')}
+            className={`font-semibold py-2 px-4 sm:px-5 rounded-full shadow-md whitespace-nowrap text-sm sm:text-base touch-manipulation ${
+              activeFilter === 'high-protein'
+                ? 'bg-purple-600 text-white hover:bg-purple-700 active:bg-purple-800'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600'
+            }`}
+          >
+            High Protein
+          </button>
+          <button
+            onClick={() => setActiveFilter('vegetarian')}
+            className={`font-semibold py-2 px-4 sm:px-5 rounded-full shadow-md whitespace-nowrap text-sm sm:text-base touch-manipulation ${
+              activeFilter === 'vegetarian'
+                ? 'bg-green-500 text-white hover:bg-green-600 active:bg-green-700'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600'
+            }`}
+          >
+            Vegetarian
+          </button>
+          <button
+            onClick={() => setActiveFilter('desserts')}
+            className={`font-semibold py-2 px-4 sm:px-5 rounded-full shadow-md whitespace-nowrap text-sm sm:text-base touch-manipulation ${
+              activeFilter === 'desserts'
+                ? 'bg-pink-600 text-white hover:bg-pink-700 active:bg-pink-800'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600'
+            }`}
+          >
+            Desserts
+          </button>
+        </div>
+
+        {loading && filteredRecipes.length === 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
             {[...Array(4)].map((_, i) => (
               <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden animate-pulse">
@@ -546,14 +606,16 @@ const HomePage = ({ theme, toggleTheme }) => {
               </div>
             ))}
           </div>
-        ) : popularRecipes.length > 0 ? (
+        ) : filteredRecipes.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
-            {popularRecipes.map(recipe => (
+            {filteredRecipes.slice(0, 8).map(recipe => (
               <RecipeCard key={recipe.id} recipe={recipe} />
             ))}
           </div>
         ) : (
-          <p className="text-gray-500 dark:text-gray-400 text-center py-8">No popular recipes found.</p>
+          <p className="text-gray-500 dark:text-gray-400 text-center py-8">
+            No recipes found for this filter. Try a different category.
+          </p>
         )}
       </section>
 
@@ -578,7 +640,7 @@ const HomePage = ({ theme, toggleTheme }) => {
           </div>
         ) : recentRecipes.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
-            {recentRecipes.map(recipe => (
+            {recentRecipes.slice(0, 8).map(recipe => (
               <RecipeCard key={recipe.id} recipe={recipe} />
             ))}
           </div>

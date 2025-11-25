@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import HomePage from '../pages/HomePage';
 
@@ -217,36 +217,100 @@ describe('HomePage Recipe Discovery', () => {
     });
   });
 
-  describe('Quick Filter Tabs Navigation', () => {
-    test('clicking Quick & Easy should navigate to search with difficulty filter', async () => {
+  describe('Recipe Filter Tabs', () => {
+    test('should filter popular recipes when clicking filter buttons', async () => {
+      const mockRecipes = [
+        {
+          id: 1,
+          title: 'Quick Chicken Stir Fry',
+          description: 'Fast and easy',
+          difficulty: 'easy',
+          prep_time: 5,
+          cook_time: 10
+        },
+        {
+          id: 2,
+          title: 'Slow Beef Stew',
+          description: 'Takes time',
+          difficulty: 'medium',
+          prep_time: 20,
+          cook_time: 120
+        }
+      ];
+
       // Mock all three API calls
       api.get.mockResolvedValueOnce({ data: null }); // featured
-      api.get.mockResolvedValueOnce({ data: [] }); // popular
+      api.get.mockResolvedValueOnce({ data: mockRecipes }); // popular
       api.get.mockResolvedValueOnce({ data: [] }); // recent
 
       render(<HomePage />, { wrapper: TestWrapper });
 
-      // Find and click the "Quick & Easy" button
       await waitFor(() => {
-        const quickEasyBtn = screen.getByText(/Quick & Easy/i);
-        expect(quickEasyBtn).toBeInTheDocument();
+        expect(screen.getByText('Quick Chicken Stir Fry')).toBeInTheDocument();
+        expect(screen.getByText('Slow Beef Stew')).toBeInTheDocument();
       });
 
-      // Note: We'll implement the click functionality in the actual implementation
-      // For now, just verify the button exists
+      // Click "Quick & Easy" filter
+      const quickEasyBtn = screen.getByText(/Quick & Easy/i);
+      fireEvent.click(quickEasyBtn);
+
+      // Should only show the quick recipe
+      await waitFor(() => {
+        expect(screen.getByText('Quick Chicken Stir Fry')).toBeInTheDocument();
+        expect(screen.queryByText('Slow Beef Stew')).not.toBeInTheDocument();
+      });
     });
 
-    test('clicking Vegetarian should navigate to search with diet filter', async () => {
+    test('should show all recipes when clicking All Recipes', async () => {
+      const mockRecipes = [
+        {
+          id: 1,
+          title: 'Quick Recipe',
+          description: 'Fast',
+          difficulty: 'easy',
+          prep_time: 5,
+          cook_time: 10
+        },
+        {
+          id: 2,
+          title: 'Slow Recipe',
+          description: 'Slow',
+          difficulty: 'medium',
+          prep_time: 20,
+          cook_time: 120
+        }
+      ];
+
       // Mock all three API calls
       api.get.mockResolvedValueOnce({ data: null }); // featured
-      api.get.mockResolvedValueOnce({ data: [] }); // popular
+      api.get.mockResolvedValueOnce({ data: mockRecipes }); // popular
       api.get.mockResolvedValueOnce({ data: [] }); // recent
 
       render(<HomePage />, { wrapper: TestWrapper });
 
       await waitFor(() => {
-        const vegetarianBtn = screen.getByText(/Vegetarian/i);
-        expect(vegetarianBtn).toBeInTheDocument();
+        expect(screen.getByText('Quick Recipe')).toBeInTheDocument();
+        expect(screen.getByText('Slow Recipe')).toBeInTheDocument();
+      });
+
+      // Click "Quick & Easy" first to filter
+      const quickEasyBtn = screen.getByText(/Quick & Easy/i);
+      fireEvent.click(quickEasyBtn);
+
+      // Should only show quick recipe
+      await waitFor(() => {
+        expect(screen.getByText('Quick Recipe')).toBeInTheDocument();
+        expect(screen.queryByText('Slow Recipe')).not.toBeInTheDocument();
+      });
+
+      // Click "All Recipes" to show all
+      const allRecipesBtn = screen.getByText(/All Recipes/i);
+      fireEvent.click(allRecipesBtn);
+
+      // Should show all recipes again
+      await waitFor(() => {
+        expect(screen.getByText('Quick Recipe')).toBeInTheDocument();
+        expect(screen.getByText('Slow Recipe')).toBeInTheDocument();
       });
     });
   });
