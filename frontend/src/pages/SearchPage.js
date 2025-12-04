@@ -365,14 +365,20 @@ const RecipeGrid = ({ recipes }) => {
 
 // Recipe Card Component
 const RecipeCard = ({ recipe }) => {
+  const [imageLoaded, setImageLoaded] = React.useState(false);
+  
   return (
     <Link to={`/recipe/${recipe.id}`} className="group">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
         <div className="relative h-48 overflow-hidden">
+          {!imageLoaded && (
+            <div className="absolute inset-0 bg-gray-300 dark:bg-gray-700 animate-pulse" />
+          )}
           <img
             src={recipe.image_url || 'https://via.placeholder.com/400x300?text=Recipe'}
             alt={recipe.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+            onLoad={() => setImageLoaded(true)}
           />
           <div className="absolute top-2 right-2 bg-green-600 text-white text-xs font-bold px-2 py-1 rounded">
             {recipe.difficulty}

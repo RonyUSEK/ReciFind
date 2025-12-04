@@ -5,19 +5,16 @@ echo ""
 echo "🚀 Starting Backend and Frontend..."
 echo ""
 
-# Check if database needs initialization
-echo "🔍 Checking database status..."
-if ! psql -h postgres -U user -d mydb -tAc "SELECT 1 FROM users LIMIT 1" 2>/dev/null | grep -q 1; then
-    echo "⚠️  Database not initialized. Would you like to initialize it now? (y/n)"
-    read -t 5 -n 1 -r INIT_DB || INIT_DB="y"
-    echo ""
-    if [[ $INIT_DB =~ ^[Yy]$ ]] || [[ -z $INIT_DB ]]; then
-        echo "🔨 Initializing database with ReciFind schema..."
-        cd /workspace/backend
-        node src/db/init.js
-        echo ""
-    fi
+# Auto-initialize database if tables don't exist (first run on new device)
+echo "🔍 Checking database..."
+if PGPASSWORD=pass psql -h postgres -U user -d mydb -tAc "SELECT 1 FROM users LIMIT 1" 2>/dev/null | grep -q 1; then
+    echo "   ✅ Database ready"
+else
+    echo "   📦 Initializing database (first run)..."
+    cd /workspace/backend
+    DB_HOST=postgres DB_PORT=5432 DB_NAME=mydb DB_USER=user DB_PASSWORD=pass node src/db/init.js || echo "   ⚠️  Database init skipped (may already exist)"
 fi
+echo ""
 
 # Install/update dependencies
 echo "📦 Checking dependencies..."

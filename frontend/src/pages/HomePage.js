@@ -88,13 +88,24 @@ const IngredientPill = React.memo(({ ingredient, mode, onToggleMode }) => {
 });
 
 const RecipeCard = React.memo(({ recipe }) => {
+  const [imageLoaded, setImageLoaded] = useState(false);
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
   const imageUrl = recipe.image_url || recipe.imageUrl || 'https://placehold.co/600x400/87CEEB/ffffff?text=Recipe';
   const likeCount = recipe.like_count || recipe.likes || 0;
   
   return (
     <div className="recipe-card bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden cursor-pointer border border-gray-100 dark:border-gray-700 hover:shadow-2xl hover:scale-[1.02] transition-all duration-300">
-      <img src={imageUrl} alt={recipe.title} className="w-full h-48 object-cover" />
+      <div className="relative h-48">
+        {!imageLoaded && (
+          <div className="absolute inset-0 bg-gray-300 dark:bg-gray-700 animate-pulse" />
+        )}
+        <img 
+          src={imageUrl} 
+          alt={recipe.title} 
+          className={`w-full h-48 object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+          onLoad={() => setImageLoaded(true)}
+        />
+      </div>
       <div className="p-5">
         <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{recipe.title}</h3>
         
@@ -140,12 +151,14 @@ const HomePage = ({ theme, toggleTheme }) => {
   const [recentRecipes, setRecentRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState('all');
+  const [featuredImageLoaded, setFeaturedImageLoaded] = useState(false);
 
   // Fetch recipes on mount
   useEffect(() => {
     const fetchRecipes = async () => {
       try {
         setLoading(true);
+        setFeaturedImageLoaded(false);
         
         // Fetch all three sections
         const [featuredRes, popularRes, recentRes] = await Promise.all([
@@ -472,11 +485,17 @@ const HomePage = ({ theme, toggleTheme }) => {
           <div className="bg-white dark:bg-gray-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden p-4 sm:p-6 lg:p-12 border-b-4 border-orange-500">
             <div className="lg:flex lg:space-x-12 items-center">
               <div className="lg:w-1/3 mb-4 sm:mb-6 lg:mb-0 relative">
-                <img 
-                  src={featuredRecipe.image_url || 'https://placehold.co/800x600/FF6347/ffffff?text=Featured+Recipe'} 
-                  alt={featuredRecipe.title} 
-                  className="w-full h-auto object-cover rounded-xl sm:rounded-2xl shadow-xl" 
-                />
+                <div className="relative">
+                  {!featuredImageLoaded && (
+                    <div className="absolute inset-0 bg-gray-300 dark:bg-gray-700 animate-pulse rounded-xl sm:rounded-2xl" style={{ aspectRatio: '4/3' }} />
+                  )}
+                  <img 
+                    src={featuredRecipe.image_url || 'https://placehold.co/800x600/FF6347/ffffff?text=Featured+Recipe'} 
+                    alt={featuredRecipe.title} 
+                    className={`w-full h-auto object-cover rounded-xl sm:rounded-2xl shadow-xl transition-opacity duration-300 ${featuredImageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                    onLoad={() => setFeaturedImageLoaded(true)}
+                  />
+                </div>
                 <span className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-orange-500 text-white text-xs font-bold px-2 py-1 sm:px-3 sm:py-1 rounded-full uppercase">
                   Today's Pick
                 </span>

@@ -1,7 +1,3 @@
--- ReciFind Database Schema
--- PostgreSQL 15+
--- Created: November 19, 2025
-
 -- Enable extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
