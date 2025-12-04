@@ -87,14 +87,17 @@ const IngredientPill = React.memo(({ ingredient, mode, onToggleMode }) => {
   );
 });
 
-const RecipeCard = React.memo(({ recipe }) => {
+const RecipeCard = React.memo(({ recipe, onClick }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
   const imageUrl = recipe.image_url || recipe.imageUrl || 'https://placehold.co/600x400/87CEEB/ffffff?text=Recipe';
   const likeCount = recipe.like_count || recipe.likes || 0;
   
   return (
-    <div className="recipe-card bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden cursor-pointer border border-gray-100 dark:border-gray-700 hover:shadow-2xl hover:scale-[1.02] transition-all duration-300">
+    <div 
+      onClick={onClick}
+      className="recipe-card bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden cursor-pointer border border-gray-100 dark:border-gray-700 hover:shadow-2xl hover:scale-[1.02] transition-all duration-300"
+    >
       <div className="relative h-48">
         {!imageLoaded && (
           <div className="absolute inset-0 bg-gray-300 dark:bg-gray-700 animate-pulse" />
@@ -529,7 +532,10 @@ const HomePage = ({ theme, toggleTheme }) => {
                     </li>
                   )}
                 </ul>
-                <button className="bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold py-3 px-6 sm:px-8 rounded-xl transition duration-300 text-base sm:text-lg shadow-lg w-full sm:w-auto touch-manipulation">
+                <button 
+                  onClick={() => navigate(`/recipe/${featuredRecipe.id}`)}
+                  className="bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold py-3 px-6 sm:px-8 rounded-xl transition duration-300 text-base sm:text-lg shadow-lg w-full sm:w-auto touch-manipulation"
+                >
                   View Full Recipe
                 </button>
               </div>
@@ -628,7 +634,7 @@ const HomePage = ({ theme, toggleTheme }) => {
         ) : filteredRecipes.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
             {filteredRecipes.slice(0, 8).map(recipe => (
-              <RecipeCard key={recipe.id} recipe={recipe} />
+              <RecipeCard key={recipe.id} recipe={recipe} onClick={() => navigate(`/recipe/${recipe.id}`)} />
             ))}
           </div>
         ) : (
@@ -660,7 +666,7 @@ const HomePage = ({ theme, toggleTheme }) => {
         ) : recentRecipes.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
             {recentRecipes.slice(0, 8).map(recipe => (
-              <RecipeCard key={recipe.id} recipe={recipe} />
+              <RecipeCard key={recipe.id} recipe={recipe} onClick={() => navigate(`/recipe/${recipe.id}`)} />
             ))}
           </div>
         ) : (

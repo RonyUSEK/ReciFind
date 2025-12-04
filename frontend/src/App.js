@@ -5,6 +5,7 @@ import { API_BASE_URL } from './utils/api';
 import HomePage from './pages/HomePage';
 import SearchPage from './pages/SearchPage';
 import Dashboard from './pages/Dashboard';
+import RecipeDetailPage from './pages/RecipeDetailPage';
 import Login from './components/Auth/Login';
 import Register from './components/Auth/Register';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
@@ -155,6 +156,11 @@ const AppContent = () => {
       <Route path="/search" element={
         <Layout theme={theme} toggleTheme={toggleTheme}>
           <SearchPage />
+        </Layout>
+      } />
+      <Route path="/recipe/:id" element={
+        <Layout theme={theme} toggleTheme={toggleTheme}>
+          <RecipeDetailPage />
         </Layout>
       } />
       <Route path="/dashboard" element={

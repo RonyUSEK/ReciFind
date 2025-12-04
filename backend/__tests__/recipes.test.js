@@ -382,8 +382,137 @@ describe('Recipe Search API', () => {
       }
     });
   });
+});
 
-  // Cleanup after tests
+describe('Recipe Detail API', () => {
+  
+  describe('GET /api/recipes/:id', () => {
+    
+    test('should return recipe details with all fields', async () => {
+      // First get a recipe id from search
+      const searchResponse = await request(app)
+        .get('/api/recipes/search?limit=1')
+        .expect(200);
+      
+      expect(searchResponse.body.recipes.length).toBeGreaterThan(0);
+      const recipeId = searchResponse.body.recipes[0].id;
+      
+      const response = await request(app)
+        .get(`/api/recipes/${recipeId}`)
+        .expect(200);
+      
+      // Check main recipe fields
+      expect(response.body).toHaveProperty('id');
+      expect(response.body).toHaveProperty('title');
+      expect(response.body).toHaveProperty('description');
+      expect(response.body).toHaveProperty('instructions');
+      expect(response.body).toHaveProperty('chef_name');
+      expect(response.body).toHaveProperty('prep_time');
+      expect(response.body).toHaveProperty('cook_time');
+      expect(response.body).toHaveProperty('servings');
+      expect(response.body).toHaveProperty('difficulty');
+      expect(response.body).toHaveProperty('cuisine');
+      
+      // Check interaction counts
+      expect(response.body).toHaveProperty('likes');
+      expect(response.body).toHaveProperty('dislikes');
+      expect(response.body).toHaveProperty('comment_count');
+      
+      // Check ingredients array exists
+      expect(response.body).toHaveProperty('ingredients');
+      expect(Array.isArray(response.body.ingredients)).toBe(true);
+    });
+    
+    test('should return 404 for non-existent recipe', async () => {
+      const response = await request(app)
+        .get('/api/recipes/999999')
+        .expect(404);
+      
+      expect(response.body).toHaveProperty('error');
+      expect(response.body.error).toBe('Recipe not found');
+    });
+    
+    test('should include ingredients with quantities and units', async () => {
+      // Get a recipe with ingredients
+      const searchResponse = await request(app)
+        .get('/api/recipes/search?ingredients=garlic')
+        .expect(200);
+      
+      if (searchResponse.body.recipes.length > 0) {
+        const recipeId = searchResponse.body.recipes[0].id;
+        
+        const response = await request(app)
+          .get(`/api/recipes/${recipeId}`)
+          .expect(200);
+        
+        expect(response.body.ingredients).toBeInstanceOf(Array);
+        
+        if (response.body.ingredients.length > 0) {
+          const ingredient = response.body.ingredients[0];
+          expect(ingredient).toHaveProperty('name');
+          expect(ingredient).toHaveProperty('quantity');
+          expect(ingredient).toHaveProperty('unit');
+        }
+      }
+    });
+    
+    test('should return proper like and dislike counts', async () => {
+      const searchResponse = await request(app)
+        .get('/api/recipes/search?limit=1')
+        .expect(200);
+      
+      const recipeId = searchResponse.body.recipes[0].id;
+      
+      const response = await request(app)
+        .get(`/api/recipes/${recipeId}`)
+        .expect(200);
+      
+      expect(typeof response.body.likes).toBe('string'); // PostgreSQL COUNT returns string
+      expect(typeof response.body.dislikes).toBe('string');
+      expect(typeof response.body.comment_count).toBe('string');
+      
+      // Should be parseable as numbers
+      expect(parseInt(response.body.likes)).toBeGreaterThanOrEqual(0);
+      expect(parseInt(response.body.dislikes)).toBeGreaterThanOrEqual(0);
+      expect(parseInt(response.body.comment_count)).toBeGreaterThanOrEqual(0);
+    });
+    
+    test('should only return approved recipes', async () => {
+      // Try to fetch any recipe and verify it's approved
+      const searchResponse = await request(app)
+        .get('/api/recipes/search?limit=1')
+        .expect(200);
+      
+      if (searchResponse.body.recipes.length > 0) {
+        const recipeId = searchResponse.body.recipes[0].id;
+        
+        const response = await request(app)
+          .get(`/api/recipes/${recipeId}`)
+          .expect(200);
+        
+        expect(response.body.status).toBe('approved');
+      }
+    });
+    
+    test('should have instructions as JSONB array', async () => {
+      const searchResponse = await request(app)
+        .get('/api/recipes/search?limit=1')
+        .expect(200);
+      
+      const recipeId = searchResponse.body.recipes[0].id;
+      
+      const response = await request(app)
+        .get(`/api/recipes/${recipeId}`)
+        .expect(200);
+      
+      expect(Array.isArray(response.body.instructions)).toBe(true);
+      
+      if (response.body.instructions.length > 0) {
+        expect(typeof response.body.instructions[0]).toBe('string');
+      }
+    });
+  });
+  
   afterAll(async () => {
     await pool.end();
   });
