@@ -20,7 +20,8 @@ function authenticate(req, res, next) {
     
     // Attach user info to request
     req.user = {
-      userId: decoded.userId,
+      id: decoded.userId,
+      userId: decoded.userId, // Keep for backwards compatibility
       role: decoded.role,
     };
     
@@ -32,7 +33,7 @@ function authenticate(req, res, next) {
 
 /**
  * Middleware to check if user has required role(s)
- * @param  {...string} allowedRoles - Roles that are allowed
+ * @param  {...string|Array<string>} allowedRoles - Roles that are allowed
  */
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
@@ -40,7 +41,10 @@ function requireRole(...allowedRoles) {
       return res.status(401).json({ error: 'Authentication required' });
     }
     
-    if (!allowedRoles.includes(req.user.role)) {
+    // Handle both array and spread arguments
+    const roles = Array.isArray(allowedRoles[0]) ? allowedRoles[0] : allowedRoles;
+    
+    if (!roles.includes(req.user.role)) {
       return res.status(403).json({ 
         error: 'Access denied. Insufficient permissions.' 
       });

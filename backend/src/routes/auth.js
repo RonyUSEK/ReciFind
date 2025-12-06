@@ -159,4 +159,128 @@ router.get('/me', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/auth/apply-chef
+ * Submit chef application for admin review
+ */
+router.post('/apply-chef', authenticate, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.user.userId;
+    
+    const {
+      full_name,
+      experience_years,
+      specialty,
+      bio,
+      portfolio_url,
+      instagram_handle,
+      sample_recipe_title,
+      sample_recipe_description,
+      sample_recipe_images,
+      demo_video_url,
+      motivation
+    } = req.body;
+
+    // Validate required fields
+    if (!full_name || !bio || !motivation) {
+      return res.status(400).json({ 
+        error: 'Full name, bio, and motivation are required' 
+      });
+    }
+
+    // Check if user exists and get current role
+    const userResult = await pool.query(
+      'SELECT * FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Check if already a chef or admin
+    if (user.role === 'chef' || user.role === 'admin') {
+      return res.status(400).json({ error: 'User is already a chef or admin' });
+    }
+
+    // Check if already has a pending application
+    const existingApp = await pool.query(
+      'SELECT * FROM chef_applications WHERE user_id = $1',
+      [userId]
+    );
+
+    if (existingApp.rows.length > 0) {
+      const app = existingApp.rows[0];
+      if (app.status === 'pending') {
+        return res.status(400).json({ 
+          error: 'You already have a pending chef application' 
+        });
+      } else if (app.status === 'rejected') {
+        // Allow reapplication - delete old one
+        await pool.query('DELETE FROM chef_applications WHERE user_id = $1', [userId]);
+      } else if (app.status === 'approved') {
+        return res.status(400).json({ 
+          error: 'Your application was already approved' 
+        });
+      }
+    }
+
+    // Create chef application
+    const result = await pool.query(
+      `INSERT INTO chef_applications (
+        user_id, full_name, experience_years, specialty, bio,
+        portfolio_url, instagram_handle, sample_recipe_title,
+        sample_recipe_description, sample_recipe_images,
+        demo_video_url, motivation, status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending')
+      RETURNING *`,
+      [
+        userId, full_name, experience_years, specialty, bio,
+        portfolio_url, instagram_handle, sample_recipe_title,
+        sample_recipe_description, sample_recipe_images,
+        demo_video_url, motivation
+      ]
+    );
+
+    res.status(201).json({
+      message: 'Chef application submitted successfully. You will be notified once reviewed.',
+      application: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error submitting chef application:', error);
+    res.status(500).json({ error: 'Failed to submit chef application' });
+  }
+});
+
+/**
+ * GET /api/auth/my-application
+ * Get current user's chef application status
+ */
+router.get('/my-application', authenticate, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.user.userId;
+
+    const result = await pool.query(
+      `SELECT ca.*, u.name as reviewer_name 
+       FROM chef_applications ca
+       LEFT JOIN users u ON ca.reviewed_by = u.id
+       WHERE ca.user_id = $1`,
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No application found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching application:', error);
+    res.status(500).json({ error: 'Failed to fetch application' });
+  }
+});
+
 module.exports = router;

@@ -5,7 +5,12 @@ import { API_BASE_URL } from './utils/api';
 import HomePage from './pages/HomePage';
 import SearchPage from './pages/SearchPage';
 import Dashboard from './pages/Dashboard';
+import ChefDashboard from './pages/ChefDashboard';
+import AdminDashboard from './pages/AdminDashboard';
 import RecipeDetailPage from './pages/RecipeDetailPage';
+import RecipeForm from './components/Chef/RecipeForm';
+import ChefApplicationForm from './pages/ChefApplicationForm';
+import ApplicationStatus from './pages/ApplicationStatus';
 import Login from './components/Auth/Login';
 import Register from './components/Auth/Register';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
@@ -15,6 +20,35 @@ import './App.css';
 const Header = ({ theme, toggleTheme }) => {
   const { user, logout, isAuthenticated } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [hasPendingApplication, setHasPendingApplication] = useState(false);
+
+  useEffect(() => {
+    const checkApplication = async () => {
+      if (user?.role === 'user') {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/auth/my-application`, {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            // Backend returns application object directly
+            setHasPendingApplication(data.status === 'pending');
+          } else {
+            // 404 or other error means no application
+            setHasPendingApplication(false);
+          }
+        } catch (err) {
+          // No application or error - user can apply
+          setHasPendingApplication(false);
+        }
+      } else {
+        setHasPendingApplication(false);
+      }
+    };
+    checkApplication();
+  }, [user]);
 
   return (
     <header className="bg-white dark:bg-gray-800 shadow-lg sticky top-0 z-30">
@@ -43,43 +77,91 @@ const Header = ({ theme, toggleTheme }) => {
           </button>
           
           {isAuthenticated ? (
-            <div className="relative">
-              <button 
-                onClick={() => setShowUserMenu(!showUserMenu)}
-                className="bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-semibold py-2 px-3 sm:px-4 rounded-full transition duration-300 shadow-lg touch-manipulation flex items-center gap-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                </svg>
-                <span className="hidden sm:inline">{user?.name}</span>
-              </button>
+            <div className="relative flex items-center gap-2">
+              {/* Apply as Chef Button - Only show for regular users without pending application */}
+              {user?.role === 'user' && !hasPendingApplication && (
+                <Link to="/apply-chef">
+                  <button className="border-2 border-orange-600 bg-orange-600/10 hover:bg-orange-600/20 text-orange-600 dark:text-orange-400 dark:border-orange-500 font-semibold py-2 px-3 sm:px-4 rounded-full transition duration-300 touch-manipulation flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/>
+                      <line x1="6" y1="17" x2="18" y2="17"/>
+                    </svg>
+                    <span className="hidden sm:inline">Apply as Chef</span>
+                  </button>
+                </Link>
+              )}
+              
+              {/* User Menu Button */}
+              <div className="relative">
+                <button 
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-semibold py-2 px-3 sm:px-4 rounded-full transition duration-300 shadow-lg touch-manipulation flex items-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                  </svg>
+                  <span className="hidden sm:inline">{user?.name}</span>
+                </button>
               
                 {showUserMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 border border-gray-200 dark:border-gray-700">
-                  <Link 
-                    to="/dashboard" 
-                    onClick={() => setShowUserMenu(false)}
-                    className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  >
-                    Dashboard
-                  </Link>
-                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
-                  <button 
-                    onClick={() => {
-                      logout();
-                      setShowUserMenu(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  >
-                    Log Out
-                  </button>
-                </div>
-                )}
-                {process.env.NODE_ENV !== 'production' && (
-                  <div className="ml-4 text-xs text-gray-600 dark:text-gray-300">
-                    <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">API: {API_BASE_URL}</span>
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-xl py-2 border border-gray-200 dark:border-gray-700 z-50">
+                    <Link 
+                      to="/dashboard" 
+                      onClick={() => setShowUserMenu(false)}
+                      className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      Dashboard
+                    </Link>
+                    
+                    {user?.role === 'user' && (
+                      <Link 
+                        to="/application-status" 
+                        onClick={() => setShowUserMenu(false)}
+                        className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        My Applications
+                      </Link>
+                    )}
+                    
+                    {user?.role === 'chef' && (
+                      <Link 
+                        to="/chef/dashboard" 
+                        onClick={() => setShowUserMenu(false)}
+                        className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        Chef Dashboard
+                      </Link>
+                    )}
+                    
+                    {user?.role === 'admin' && (
+                      <Link 
+                        to="/admin/dashboard" 
+                        onClick={() => setShowUserMenu(false)}
+                        className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        Admin Dashboard
+                      </Link>
+                    )}
+                    
+                    <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                    <button 
+                      onClick={() => {
+                        logout();
+                        setShowUserMenu(false);
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      Log Out
+                    </button>
                   </div>
                 )}
+              </div>
+                
+              {process.env.NODE_ENV !== 'production' && (
+                <div className="ml-4 text-xs text-gray-600 dark:text-gray-300">
+                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">API: {API_BASE_URL}</span>
+                </div>
+              )}
             </div>
           ) : (
             <Link to="/login">
@@ -167,6 +249,48 @@ const AppContent = () => {
         <ProtectedRoute>
           <Layout theme={theme} toggleTheme={toggleTheme}>
             <Dashboard />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/chef/dashboard" element={
+        <ProtectedRoute>
+          <Layout theme={theme} toggleTheme={toggleTheme}>
+            <ChefDashboard />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/chef/recipe/new" element={
+        <ProtectedRoute>
+          <Layout theme={theme} toggleTheme={toggleTheme}>
+            <RecipeForm />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/chef/recipe/edit/:id" element={
+        <ProtectedRoute>
+          <Layout theme={theme} toggleTheme={toggleTheme}>
+            <RecipeForm isEdit={true} />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/apply-chef" element={
+        <ProtectedRoute>
+          <Layout theme={theme} toggleTheme={toggleTheme}>
+            <ChefApplicationForm />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/application-status" element={
+        <ProtectedRoute>
+          <Layout theme={theme} toggleTheme={toggleTheme}>
+            <ApplicationStatus />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/dashboard" element={
+        <ProtectedRoute>
+          <Layout theme={theme} toggleTheme={toggleTheme}>
+            <AdminDashboard />
           </Layout>
         </ProtectedRoute>
       } />

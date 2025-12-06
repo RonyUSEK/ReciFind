@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS recipe_approvals CASCADE;
 DROP TABLE IF EXISTS recipe_ingredients CASCADE;
 DROP TABLE IF EXISTS ingredients CASCADE;
 DROP TABLE IF EXISTS recipes CASCADE;
+DROP TABLE IF EXISTS chef_applications CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 
 -- Users table
@@ -33,6 +34,34 @@ CREATE TABLE users (
 -- Create index on email and role for faster queries
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
+
+-- Chef applications table
+CREATE TABLE chef_applications (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    full_name VARCHAR(100) NOT NULL,
+    experience_years INTEGER,
+    specialty VARCHAR(100), -- e.g., "Italian Cuisine", "Pastry", "BBQ"
+    bio TEXT NOT NULL,
+    portfolio_url VARCHAR(500), -- Link to portfolio/website
+    instagram_handle VARCHAR(100),
+    sample_recipe_title VARCHAR(255),
+    sample_recipe_description TEXT,
+    sample_recipe_images TEXT[], -- Array of image URLs
+    demo_video_url VARCHAR(500), -- YouTube/Vimeo link
+    motivation TEXT NOT NULL, -- Why they want to be a chef on the platform
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    admin_feedback TEXT,
+    reviewed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id) -- One application per user
+);
+
+-- Create indexes for chef applications
+CREATE INDEX idx_chef_applications_user_id ON chef_applications(user_id);
+CREATE INDEX idx_chef_applications_status ON chef_applications(status);
+CREATE INDEX idx_chef_applications_reviewed_by ON chef_applications(reviewed_by);
 
 -- Recipes table
 CREATE TABLE recipes (

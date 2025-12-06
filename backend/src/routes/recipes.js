@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { authenticate, requireRole } = require('../middleware/auth');
 
 /**
  * GET /api/recipes/search
@@ -289,6 +290,263 @@ router.get('/recent', async (req, res) => {
   } catch (error) {
     console.error('Error fetching recent recipes:', error);
     res.status(500).json({ error: 'Failed to fetch recent recipes' });
+  }
+});
+/**
+ * POST /api/recipes
+ * Create a new recipe (chef/admin only)
+ */
+router.post('/', authenticate, requireRole(['chef', 'admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const {
+      title,
+      description,
+      instructions,
+      ingredients,
+      prep_time,
+      cook_time,
+      servings,
+      difficulty,
+      cuisine,
+      spice_level,
+      calories,
+      image_url
+    } = req.body;
+
+    // Validate required fields
+    if (!title || !description || !instructions) {
+      return res.status(400).json({ 
+        error: 'Title, description, and instructions are required' 
+      });
+    }
+
+    // Insert recipe
+    const recipeResult = await pool.query(
+      `INSERT INTO recipes (
+        title, description, instructions, chef_id, 
+        prep_time, cook_time, servings, difficulty, 
+        cuisine, spice_level, calories, image_url, 
+        status, source_type
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', 'chef')
+      RETURNING *`,
+      [
+        title, 
+        description, 
+        JSON.stringify(instructions), 
+        req.user.id,
+        prep_time || null,
+        cook_time || null,
+        servings || null,
+        difficulty || null,
+        cuisine || null,
+        spice_level || null,
+        calories || null,
+        image_url || null
+      ]
+    );
+
+    const recipe = recipeResult.rows[0];
+
+    // Insert ingredients if provided
+    if (ingredients && Array.isArray(ingredients)) {
+      for (const ing of ingredients) {
+        // Check if ingredient exists
+        let ingredientResult = await pool.query(
+          'SELECT id FROM ingredients WHERE LOWER(name) = LOWER($1)',
+          [ing.name]
+        );
+
+        let ingredientId;
+        if (ingredientResult.rows.length === 0) {
+          // Create new ingredient
+          const newIng = await pool.query(
+            'INSERT INTO ingredients (name) VALUES ($1) RETURNING id',
+            [ing.name]
+          );
+          ingredientId = newIng.rows[0].id;
+        } else {
+          ingredientId = ingredientResult.rows[0].id;
+        }
+
+        // Link to recipe
+        await pool.query(
+          'INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit) VALUES ($1, $2, $3, $4)',
+          [recipe.id, ingredientId, ing.quantity || '', ing.unit || '']
+        );
+      }
+    }
+
+    res.status(201).json(recipe);
+  } catch (error) {
+    console.error('Error creating recipe:', error);
+    res.status(500).json({ error: 'Failed to create recipe' });
+  }
+});
+
+/**
+ * GET /api/recipes/my
+ * Get current chef's recipes (all statuses)
+ */
+router.get('/my', authenticate, requireRole(['chef', 'admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const result = await pool.query(
+      `SELECT r.*, u.name as chef_name
+       FROM recipes r
+       JOIN users u ON r.chef_id = u.id
+       WHERE r.chef_id = $1
+       ORDER BY r.created_at DESC`,
+      [req.user.id]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching chef recipes:', error);
+    res.status(500).json({ error: 'Failed to fetch recipes' });
+  }
+});
+
+/**
+ * PUT /api/recipes/:id
+ * Update own recipe (chef/admin only)
+ */
+router.put('/:id', authenticate, requireRole(['chef', 'admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+    const {
+      title,
+      description,
+      instructions,
+      prep_time,
+      cook_time,
+      servings,
+      difficulty,
+      cuisine,
+      spice_level,
+      calories,
+      image_url
+    } = req.body;
+
+    // Check if recipe exists and belongs to user (unless admin)
+    const checkResult = await pool.query(
+      'SELECT * FROM recipes WHERE id = $1',
+      [id]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    const recipe = checkResult.rows[0];
+
+    // Check ownership (admin can edit any, chef can only edit own)
+    if (req.user.role !== 'admin' && recipe.chef_id !== req.user.id) {
+      return res.status(403).json({ error: 'Not authorized to edit this recipe' });
+    }
+
+    // Build update query dynamically
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
+
+    if (title !== undefined) {
+      updates.push(`title = $${paramCount++}`);
+      values.push(title);
+    }
+    if (description !== undefined) {
+      updates.push(`description = $${paramCount++}`);
+      values.push(description);
+    }
+    if (instructions !== undefined) {
+      updates.push(`instructions = $${paramCount++}`);
+      values.push(JSON.stringify(instructions));
+    }
+    if (prep_time !== undefined) {
+      updates.push(`prep_time = $${paramCount++}`);
+      values.push(prep_time);
+    }
+    if (cook_time !== undefined) {
+      updates.push(`cook_time = $${paramCount++}`);
+      values.push(cook_time);
+    }
+    if (servings !== undefined) {
+      updates.push(`servings = $${paramCount++}`);
+      values.push(servings);
+    }
+    if (difficulty !== undefined) {
+      updates.push(`difficulty = $${paramCount++}`);
+      values.push(difficulty);
+    }
+    if (cuisine !== undefined) {
+      updates.push(`cuisine = $${paramCount++}`);
+      values.push(cuisine);
+    }
+    if (spice_level !== undefined) {
+      updates.push(`spice_level = $${paramCount++}`);
+      values.push(spice_level);
+    }
+    if (calories !== undefined) {
+      updates.push(`calories = $${paramCount++}`);
+      values.push(calories);
+    }
+    if (image_url !== undefined) {
+      updates.push(`image_url = $${paramCount++}`);
+      values.push(image_url);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(id);
+    const updateResult = await pool.query(
+      `UPDATE recipes SET ${updates.join(', ')} WHERE id = $${paramCount} RETURNING *`,
+      values
+    );
+
+    res.json(updateResult.rows[0]);
+  } catch (error) {
+    console.error('Error updating recipe:', error);
+    res.status(500).json({ error: 'Failed to update recipe' });
+  }
+});
+
+/**
+ * DELETE /api/recipes/:id
+ * Delete own recipe (chef/admin only)
+ */
+router.delete('/:id', authenticate, requireRole(['chef', 'admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+
+    // Check if recipe exists and belongs to user (unless admin)
+    const checkResult = await pool.query(
+      'SELECT * FROM recipes WHERE id = $1',
+      [id]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    const recipe = checkResult.rows[0];
+
+    // Check ownership (admin can delete any, chef can only delete own)
+    if (req.user.role !== 'admin' && recipe.chef_id !== req.user.id) {
+      return res.status(403).json({ error: 'Not authorized to delete this recipe' });
+    }
+
+    // Delete recipe (cascading will handle related records)
+    await pool.query('DELETE FROM recipes WHERE id = $1', [id]);
+
+    res.json({ message: 'Recipe deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting recipe:', error);
+    res.status(500).json({ error: 'Failed to delete recipe' });
   }
 });
 

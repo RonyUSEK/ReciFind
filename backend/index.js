@@ -72,6 +72,10 @@ app.use('/api/auth', authRoutes);
 const recipeRoutes = require('./src/routes/recipes');
 app.use('/api/recipes', recipeRoutes);
 
+// Admin routes
+const adminRoutes = require('./src/routes/admin');
+app.use('/api/admin', adminRoutes);
+
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
   try {
