@@ -147,4 +147,249 @@ router.post('/chef-applications/:id/reject', authenticate, requireRole(['admin']
   }
 });
 
+/**
+ * GET /api/admin/recipes/pending
+ * Get all pending recipes awaiting approval
+ */
+router.get('/recipes/pending', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const result = await pool.query(`
+      SELECT r.*, 
+             u.name as chef_name,
+             u.email as chef_email,
+             u.reputation_score
+      FROM recipes r
+      JOIN users u ON r.chef_id = u.id
+      WHERE r.status = 'pending' AND r.source_type = 'chef'
+      ORDER BY r.created_at ASC
+    `);
+
+    res.json({ recipes: result.rows });
+  } catch (error) {
+    console.error('Error fetching pending recipes:', error);
+    res.status(500).json({ error: 'Failed to fetch pending recipes' });
+  }
+});
+
+/**
+ * POST /api/admin/recipes/:id/approve
+ * Approve a pending recipe
+ */
+router.post('/recipes/:id/approve', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+    const adminId = req.user.userId;
+
+    // Get recipe
+    const recipeResult = await pool.query(
+      'SELECT * FROM recipes WHERE id = $1',
+      [id]
+    );
+
+    if (recipeResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    const recipe = recipeResult.rows[0];
+
+    if (recipe.status !== 'pending') {
+      return res.status(400).json({ 
+        error: `Recipe already ${recipe.status}` 
+      });
+    }
+
+    // Update recipe status to approved
+    await pool.query(
+      `UPDATE recipes 
+       SET status = 'approved', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
+    );
+
+    // Create approval record
+    await pool.query(
+      `INSERT INTO recipe_approvals (recipe_id, admin_id, status, reviewed_at)
+       VALUES ($1, $2, 'approved', CURRENT_TIMESTAMP)`,
+      [id, adminId]
+    );
+
+    // Increment chef's reputation score
+    await pool.query(
+      `UPDATE users 
+       SET reputation_score = reputation_score + 10,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [recipe.chef_id]
+    );
+
+    res.json({ 
+      message: 'Recipe approved successfully',
+      recipe_id: id
+    });
+  } catch (error) {
+    console.error('Error approving recipe:', error);
+    res.status(500).json({ error: 'Failed to approve recipe' });
+  }
+});
+
+/**
+ * POST /api/admin/recipes/:id/reject
+ * Reject a pending recipe with feedback
+ */
+router.post('/recipes/:id/reject', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+    const { feedback } = req.body;
+    const adminId = req.user.userId;
+
+    if (!feedback) {
+      return res.status(400).json({ error: 'Feedback is required when rejecting' });
+    }
+
+    // Get recipe
+    const recipeResult = await pool.query(
+      'SELECT * FROM recipes WHERE id = $1',
+      [id]
+    );
+
+    if (recipeResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    const recipe = recipeResult.rows[0];
+
+    if (recipe.status !== 'pending') {
+      return res.status(400).json({ 
+        error: `Recipe already ${recipe.status}` 
+      });
+    }
+
+    // Update recipe status to rejected
+    await pool.query(
+      `UPDATE recipes 
+       SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
+    );
+
+    // Create approval record with feedback
+    await pool.query(
+      `INSERT INTO recipe_approvals (recipe_id, admin_id, status, feedback, reviewed_at)
+       VALUES ($1, $2, 'rejected', $3, CURRENT_TIMESTAMP)`,
+      [id, adminId, feedback]
+    );
+
+    res.json({ 
+      message: 'Recipe rejected',
+      recipe_id: id,
+      feedback
+    });
+  } catch (error) {
+    console.error('Error rejecting recipe:', error);
+    res.status(500).json({ error: 'Failed to reject recipe' });
+  }
+});
+
+/**
+ * GET /api/admin/users
+ * Get all users (for user management)
+ */
+router.get('/users', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const result = await pool.query(`
+      SELECT id, name, email, role, reputation_score, created_at, updated_at
+      FROM users
+      ORDER BY created_at DESC
+    `);
+
+    res.json({ users: result.rows });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+/**
+ * PUT /api/admin/users/:id/role
+ * Change a user's role
+ */
+router.put('/users/:id/role', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!['user', 'chef', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    // Don't allow changing own role
+    if (parseInt(id) === req.user.userId) {
+      return res.status(400).json({ error: 'Cannot change your own role' });
+    }
+
+    const result = await pool.query(
+      `UPDATE users 
+       SET role = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING id, name, email, role`,
+      [role, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ 
+      message: 'User role updated successfully',
+      user: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    res.status(500).json({ error: 'Failed to update user role' });
+  }
+});
+
+/**
+ * PUT /api/admin/users/:id/reputation
+ * Update chef's reputation score
+ */
+router.put('/users/:id/reputation', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+    const { reputation_score } = req.body;
+
+    if (typeof reputation_score !== 'number') {
+      return res.status(400).json({ error: 'Reputation score must be a number' });
+    }
+
+    const result = await pool.query(
+      `UPDATE users 
+       SET reputation_score = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND role IN ('chef', 'admin')
+       RETURNING id, name, email, role, reputation_score`,
+      [reputation_score, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Chef not found' });
+    }
+
+    res.json({ 
+      message: 'Reputation score updated successfully',
+      user: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating reputation:', error);
+    res.status(500).json({ error: 'Failed to update reputation' });
+  }
+});
+
 module.exports = router;
