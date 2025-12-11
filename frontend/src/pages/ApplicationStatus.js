@@ -55,8 +55,8 @@ function ApplicationStatus() {
 
   if (error && !application) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-4 sm:py-8">
+        <div className="w-full px-3 sm:px-4 lg:max-w-4xl lg:mx-auto">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-8 text-center">
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
               No Application Found
@@ -77,8 +77,8 @@ function ApplicationStatus() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-4 sm:py-8">
+      <div className="w-full px-3 sm:px-4 lg:max-w-4xl lg:mx-auto">
         {/* Success Message */}
         {successMessage && (
           <div className="mb-6 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">

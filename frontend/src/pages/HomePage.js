@@ -353,7 +353,7 @@ const HomePage = ({ theme, toggleTheme }) => {
   const showMockNextIngredient = !isIngredientActive(mockNextIngredient);
 
   return (
-    <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-10">
+    <main className="w-full px-3 sm:px-4 lg:max-w-7xl lg:mx-auto py-4 sm:py-6 lg:py-10">
       {/* Hero Section */}
       <section className="mb-8 sm:mb-12">
         <h1 className="text-3xl sm:text-4xl lg:text-6xl font-extrabold text-gray-900 dark:text-gray-100 text-center mb-3 sm:mb-4 px-2">
@@ -364,7 +364,7 @@ const HomePage = ({ theme, toggleTheme }) => {
         </p>
 
         {/* Search Bar */}
-        <div className="relative max-w-3xl mx-auto shadow-xl rounded-2xl bg-white dark:bg-gray-800 mb-8 border border-gray-200 dark:border-gray-700">
+        <div className="relative w-full sm:max-w-3xl sm:mx-auto shadow-xl rounded-lg sm:rounded-2xl bg-white dark:bg-gray-800 mb-6 sm:mb-8 border border-gray-200 dark:border-gray-700">
           <div className="flex flex-col sm:flex-row sm:items-center p-2 gap-2">
             <div className="flex items-center flex-1 min-w-0">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 text-gray-400 mx-2 sm:mx-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -464,7 +464,7 @@ const HomePage = ({ theme, toggleTheme }) => {
         </div>
         
         {/* Quick Toggle Buttons */}
-        <div className="flex flex-wrap justify-center gap-2 sm:gap-3 max-w-4xl mx-auto mb-8 sm:mb-12">
+        <div className="flex flex-wrap justify-center gap-2 sm:gap-3 w-full sm:max-w-4xl sm:mx-auto mb-6 sm:mb-8 lg:mb-12">
           {mockIngredients.map(ingredient => (
             <button 
               key={ingredient}

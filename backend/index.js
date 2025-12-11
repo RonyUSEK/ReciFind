@@ -6,8 +6,13 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors());
+// CORS Middleware - Allow all origins for development (mobile access)
+app.use(cors({
+  origin: true, // Allow all origins (for mobile device access on local network)
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // Database connection
@@ -75,6 +80,10 @@ app.use('/api/recipes', recipeRoutes);
 // Admin routes
 const adminRoutes = require('./src/routes/admin');
 app.use('/api/admin', adminRoutes);
+
+// Report routes
+const reportRoutes = require('./src/routes/reports');
+app.use('/api/reports', reportRoutes);
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {

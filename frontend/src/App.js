@@ -3,6 +3,14 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { API_BASE_URL } from './utils/api';
 import HomePage from './pages/HomePage';
+
+// Ensure no body margins/padding for mobile
+if (typeof document !== 'undefined') {
+  document.body.style.margin = '0';
+  document.body.style.padding = '0';
+  document.body.style.overflowX = 'hidden';
+  document.documentElement.style.overflowX = 'hidden';
+}
 import SearchPage from './pages/SearchPage';
 import Dashboard from './pages/Dashboard';
 import ChefDashboard from './pages/ChefDashboard';

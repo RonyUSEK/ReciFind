@@ -186,6 +186,7 @@ CREATE TABLE reports (
     description TEXT,
     status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'resolved', 'dismissed')),
     reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    admin_notes TEXT, -- Admin notes for the resolution
     resolved_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

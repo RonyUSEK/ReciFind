@@ -5,10 +5,11 @@ import Toast from '../components/Common/Toast';
 import ConfirmModal from '../components/Common/ConfirmModal';
 import useToast from '../hooks/useToast';
 import useConfirm from '../hooks/useConfirm';
+import ReportManagement from '../components/Admin/ReportManagement';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const [mainTab, setMainTab] = useState('applications'); // applications, recipes, users
+  const [mainTab, setMainTab] = useState('applications'); // applications, recipes, users, reports
   const [activeTab, setActiveTab] = useState('pending'); // For sub-tabs (pending, all)
   const [applications, setApplications] = useState([]);
   const [recipes, setRecipes] = useState([]);
@@ -249,69 +250,83 @@ const AdminDashboard = () => {
   };
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <main className="w-full px-3 sm:px-4 lg:max-w-7xl lg:mx-auto py-6 sm:py-8 lg:py-10">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-6">
           Admin Dashboard
         </h1>
 
-        {/* Main Tabs */}
-        <div className="flex space-x-4 border-b-2 border-gray-300 dark:border-gray-600 mb-6">
-          <button
-            onClick={() => setMainTab('applications')}
-            className={`pb-2 px-4 font-semibold transition-colors ${
-              mainTab === 'applications'
-                ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            Chef Applications
-          </button>
-          <button
-            onClick={() => setMainTab('recipes')}
-            className={`pb-2 px-4 font-semibold transition-colors ${
-              mainTab === 'recipes'
-                ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            Pending Recipes
-          </button>
-          <button
-            onClick={() => setMainTab('users')}
-            className={`pb-2 px-4 font-semibold transition-colors ${
-              mainTab === 'users'
-                ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
-          >
-            User Management
-          </button>
+        {/* Main Tabs - Horizontally Scrollable on Mobile */}
+        <div className="overflow-x-auto border-b-2 border-gray-300 dark:border-gray-600 mb-6 -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-hide">
+          <div className="flex space-x-2 sm:space-x-4 min-w-max sm:min-w-0">
+            <button
+              onClick={() => setMainTab('applications')}
+              className={`pb-2 px-3 sm:px-4 font-semibold transition-colors whitespace-nowrap ${
+                mainTab === 'applications'
+                  ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Chef Applications
+            </button>
+            <button
+              onClick={() => setMainTab('recipes')}
+              className={`pb-2 px-3 sm:px-4 font-semibold transition-colors whitespace-nowrap ${
+                mainTab === 'recipes'
+                  ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Pending Recipes
+            </button>
+            <button
+              onClick={() => setMainTab('users')}
+              className={`pb-2 px-3 sm:px-4 font-semibold transition-colors whitespace-nowrap ${
+                mainTab === 'users'
+                  ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              User Management
+            </button>
+            <button
+              onClick={() => setMainTab('reports')}
+              className={`pb-2 px-3 sm:px-4 font-semibold transition-colors whitespace-nowrap ${
+                mainTab === 'reports'
+                  ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Content Reports
+            </button>
+          </div>
         </div>
 
-        {/* Sub-Tabs for Applications */}
+        {/* Sub-Tabs for Applications - Scrollable on Mobile */}
         {mainTab === 'applications' && (
-          <div className="flex space-x-4 border-b border-gray-200 dark:border-gray-700 mb-6">
-            <button
-              onClick={() => setActiveTab('pending')}
-              className={`pb-2 px-4 font-medium transition-colors ${
-                activeTab === 'pending'
-                  ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              Pending Applications
-            </button>
-            <button
-              onClick={() => setActiveTab('all')}
-              className={`pb-2 px-4 font-medium transition-colors ${
-                activeTab === 'all'
-                  ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-              }`}
-            >
-              All Applications
-            </button>
+          <div className="overflow-x-auto border-b border-gray-200 dark:border-gray-700 mb-6 -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-hide">
+            <div className="flex space-x-2 sm:space-x-4 min-w-max sm:min-w-0">
+              <button
+                onClick={() => setActiveTab('pending')}
+                className={`pb-2 px-3 sm:px-4 font-medium transition-colors whitespace-nowrap ${
+                  activeTab === 'pending'
+                    ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                Pending Applications
+              </button>
+              <button
+                onClick={() => setActiveTab('all')}
+                className={`pb-2 px-3 sm:px-4 font-medium transition-colors whitespace-nowrap ${
+                  activeTab === 'all'
+                    ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                }`}
+              >
+                All Applications
+              </button>
+            </div>
           </div>
         )}
 
@@ -381,7 +396,7 @@ const AdminDashboard = () => {
                 {/* Bio */}
                 <div className="mb-4">
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Bio</p>
-                  <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{app.bio}</p>
+                  <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">{app.bio}</p>
                 </div>
 
                 {/* Sample Recipe */}
@@ -457,7 +472,7 @@ const AdminDashboard = () => {
                 {/* Motivation */}
                 <div className="mb-4">
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Why Join ReciFind?</p>
-                  <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{app.motivation}</p>
+                  <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words">{app.motivation}</p>
                 </div>
 
                 {/* Review Info (if reviewed) */}
@@ -688,6 +703,11 @@ const AdminDashboard = () => {
               </div>
             )}
           </>
+        )}
+
+        {/* Reports Tab Content */}
+        {mainTab === 'reports' && (
+          <ReportManagement />
         )}
       </div>
 
