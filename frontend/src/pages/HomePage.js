@@ -147,6 +147,7 @@ const HomePage = ({ theme, toggleTheme }) => {
   const [activeIngredients, setActiveIngredients] = useState(new Map());
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+  const [searchMode, setSearchMode] = useState('ingredients'); // 'ingredients' or 'name'
   
   // State for recipe sections
   const [featuredRecipe, setFeaturedRecipe] = useState(null);
@@ -269,66 +270,85 @@ const HomePage = ({ theme, toggleTheme }) => {
   }, [selectedSuggestionIndex]);
 
   const handleSearch = () => {
-    // Build search params from active ingredients
+    // Build search params
     const params = new URLSearchParams();
     
-    // Separate included and excluded ingredients
-    const includedIngredients = [];
-    const excludedIngredients = [];
-    
-    activeIngredients.forEach((mode, ingredient) => {
-      if (mode === 'include') {
-        includedIngredients.push(ingredient.toLowerCase());
-      } else if (mode === 'exclude') {
-        excludedIngredients.push(ingredient.toLowerCase());
+    if (searchMode === 'name') {
+      // Search by recipe name
+      if (searchTerm.trim()) {
+        params.append('q', searchTerm.trim());
+        navigate(`/search?${params.toString()}`);
+      } else {
+        navigate('/search');
       }
-    });
-    
-    // Add to params if any ingredients selected
-    if (includedIngredients.length > 0) {
-      params.append('ingredients', includedIngredients.join(','));
-    }
-    
-    if (excludedIngredients.length > 0) {
-      params.append('exclude', excludedIngredients.join(','));
-    }
-    
-    // Navigate to search page with params
-    if (includedIngredients.length > 0 || excludedIngredients.length > 0) {
-      navigate(`/search?${params.toString()}`);
     } else {
-      // If no ingredients, just go to search page
-      navigate('/search');
+      // Search by ingredients (original logic)
+      const includedIngredients = [];
+      const excludedIngredients = [];
+      
+      activeIngredients.forEach((mode, ingredient) => {
+        if (mode === 'include') {
+          includedIngredients.push(ingredient.toLowerCase());
+        } else if (mode === 'exclude') {
+          excludedIngredients.push(ingredient.toLowerCase());
+        }
+      });
+      
+      if (includedIngredients.length > 0) {
+        params.append('ingredients', includedIngredients.join(','));
+      }
+      
+      if (excludedIngredients.length > 0) {
+        params.append('exclude', excludedIngredients.join(','));
+      }
+      
+      // Navigate to search page with params
+      if (includedIngredients.length > 0 || excludedIngredients.length > 0) {
+        navigate(`/search?${params.toString()}`);
+      } else {
+        navigate('/search');
+      }
     }
   };
 
   const handleKeyDown = (e) => {
-    const suggestions = [
-      ...(searchTerm.trim().length > 0 && !isIngredientActive(searchTerm.trim()) ? [searchTerm.trim()] : []),
-      ...filteredSuggestions
-    ];
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedSuggestionIndex(prev => 
-        prev < suggestions.length - 1 ? prev + 1 : prev
-      );
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedSuggestionIndex(prev => prev > -1 ? prev - 1 : -1);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      
-      if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
-        handleAddIngredient(suggestions[selectedSuggestionIndex]);
-      } else if (searchTerm.trim().length > 0) {
-        handleAddIngredient(searchTerm.trim());
-      } else if (activeIngredients.size > 0) {
+    if (searchMode === 'name') {
+      // Recipe name search mode - Enter should search directly
+      if (e.key === 'Enter') {
+        e.preventDefault();
         handleSearch();
+      } else if (e.key === 'Escape') {
+        setSearchTerm('');
       }
-    } else if (e.key === 'Escape') {
-      setSearchTerm('');
-      setSelectedSuggestionIndex(-1);
+    } else {
+      // Ingredients search mode - existing logic
+      const suggestions = [
+        ...(searchTerm.trim().length > 0 && !isIngredientActive(searchTerm.trim()) ? [searchTerm.trim()] : []),
+        ...filteredSuggestions
+      ];
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedSuggestionIndex(prev => 
+          prev < suggestions.length - 1 ? prev + 1 : prev
+        );
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedSuggestionIndex(prev => prev > -1 ? prev - 1 : -1);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        
+        if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
+          handleAddIngredient(suggestions[selectedSuggestionIndex]);
+        } else if (searchTerm.trim().length > 0) {
+          handleAddIngredient(searchTerm.trim());
+        } else if (activeIngredients.size > 0) {
+          handleSearch();
+        }
+      } else if (e.key === 'Escape') {
+        setSearchTerm('');
+        setSelectedSuggestionIndex(-1);
+      }
     }
   };
 
@@ -363,6 +383,25 @@ const HomePage = ({ theme, toggleTheme }) => {
           Find recipes based on the ingredients you already have.
         </p>
 
+        {/* Search Mode Toggle */}
+        <div className="flex justify-center mb-4">
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            <button
+              onClick={() => setSearchMode('ingredients')}
+              className={`${searchMode === 'ingredients' ? 'text-orange-600 dark:text-orange-400 font-semibold' : 'hover:text-gray-900 dark:hover:text-gray-200'} transition`}
+            >
+              Search by Ingredients
+            </button>
+            <span className="mx-2">|</span>
+            <button
+              onClick={() => setSearchMode('name')}
+              className={`${searchMode === 'name' ? 'text-orange-600 dark:text-orange-400 font-semibold' : 'hover:text-gray-900 dark:hover:text-gray-200'} transition`}
+            >
+              Search by Recipe Name
+            </button>
+          </div>
+        </div>
+
         {/* Search Bar */}
         <div className="relative w-full sm:max-w-3xl sm:mx-auto shadow-xl rounded-lg sm:rounded-2xl bg-white dark:bg-gray-800 mb-6 sm:mb-8 border border-gray-200 dark:border-gray-700">
           <div className="flex flex-col sm:flex-row sm:items-center p-2 gap-2">
@@ -372,7 +411,7 @@ const HomePage = ({ theme, toggleTheme }) => {
               </svg>
 
               <div className="flex flex-wrap items-center flex-grow py-1 gap-2 min-w-0">
-                {Array.from(activeIngredients).map(([ingredient, mode]) => (
+                {searchMode === 'ingredients' && Array.from(activeIngredients).map(([ingredient, mode]) => (
                   <IngredientPill 
                     key={ingredient}
                     ingredient={ingredient} 
@@ -388,12 +427,12 @@ const HomePage = ({ theme, toggleTheme }) => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   onKeyDown={handleKeyDown}
                   className="flex-grow min-w-[120px] py-2 bg-transparent text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none text-base sm:text-lg" 
-                  placeholder={activeIngredients.size === 0 ? "e.g., chicken, basil..." : ""}
+                  placeholder={searchMode === 'name' ? "e.g., Chicken Curry, Pasta..." : (activeIngredients.size === 0 ? "e.g., chicken, basil..." : "")}
                 />
               </div>
             </div>
             
-            {showMockNextIngredient && !searchTerm && (
+            {searchMode === 'ingredients' && showMockNextIngredient && !searchTerm && (
               <button
                 onClick={() => handleAddIngredient(mockNextIngredient)}
                 className="hidden sm:flex items-center text-sm px-3 py-2 rounded-xl transition duration-150 border font-medium text-gray-500 dark:text-gray-400 border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 opacity-90 whitespace-nowrap flex-shrink-0"
@@ -412,7 +451,7 @@ const HomePage = ({ theme, toggleTheme }) => {
           </div>
           
           {/* Autofill Dropdown */}
-          {searchTerm.length > 0 && (() => {
+          {searchMode === 'ingredients' && searchTerm.length > 0 && (() => {
             const suggestions = [
               ...(searchTerm.trim().length > 0 && !isIngredientActive(searchTerm.trim()) ? [{ value: searchTerm.trim(), isCustom: true }] : []),
               ...filteredSuggestions.map(item => ({ value: item, isCustom: false }))

@@ -50,11 +50,21 @@ router.get('/search', async (req, res) => {
     let params = ['approved'];
     let paramCount = 1;
 
-    // Text search in title or description
+    // Text search in title or description (with fuzzy matching using pg_trgm)
     if (q.trim()) {
       paramCount++;
-      conditions.push(`(r.title ILIKE $${paramCount} OR r.description ILIKE $${paramCount})`);
-      params.push(`%${q.trim()}%`);
+      const searchTerm = q.trim();
+      
+      // Use pg_trgm similarity function for fuzzy matching
+      // similarity() returns a value between 0 and 1
+      // This handles typos like "chikcen" matching "chicken"
+      conditions.push(`(
+        r.title ILIKE $${paramCount} OR 
+        r.description ILIKE $${paramCount} OR
+        similarity(r.title, $${paramCount}) > 0.3 OR
+        similarity(r.description, $${paramCount}) > 0.3
+      )`);
+      params.push(`%${searchTerm}%`);
     }
 
     // Cuisine filter
@@ -117,11 +127,22 @@ router.get('/search', async (req, res) => {
           INNER JOIN ingredients i ON ri.ingredient_id = i.id
         `;
         
-        // Build LIKE conditions for partial matching (e.g., "chicken" matches "chicken breast")
-        const likeConditions = ingredientList.map((_, index) => {
+        // Use multiple fuzzy matching strategies for typos like "chikcen" matching "chicken"
+        const likeConditions = ingredientList.map((ingredient) => {
+          // Strategy 1: Substring match
           paramCount++;
-          params.push(`%${ingredientList[index]}%`);
-          return `LOWER(i.name) LIKE $${paramCount}`;
+          params.push(`%${ingredient}%`);
+          
+          // Strategy 2: Character wildcard (handles typos with wrong order)
+          paramCount++;
+          const charPattern = ingredient.split('').join('%');
+          params.push(`%${charPattern}%`);
+          
+          // Strategy 3: Similarity with lower threshold
+          paramCount++;
+          params.push(ingredient);
+          
+          return `(LOWER(i.name) LIKE $${paramCount - 2} OR LOWER(i.name) LIKE $${paramCount - 1} OR similarity(LOWER(i.name), LOWER($${paramCount})) > 0.2)`;
         }).join(' OR ');
         
         conditions.push(`(${likeConditions})`);
@@ -194,13 +215,71 @@ router.get('/search', async (req, res) => {
     
     const recipesResult = await pool.query(recipesQuery, params);
 
+    // Generate "Did you mean" suggestion if no results found
+    let suggestion = null;
+    if (total === 0) {
+      console.log('No results found, checking for suggestions...');
+      if (q.trim()) {
+        console.log('Query term:', q.trim());
+        // Find similar recipe names using similarity
+        const suggestionQuery = `
+          SELECT title, similarity(LOWER(title), LOWER($1)) as sim
+          FROM recipes 
+          WHERE status = 'approved'
+          ORDER BY sim DESC
+          LIMIT 1
+        `;
+        
+        const suggestionResult = await pool.query(suggestionQuery, [q.trim()]);
+        console.log('Suggestion result:', suggestionResult.rows.length > 0 ? suggestionResult.rows[0] : 'none');
+        if (suggestionResult.rows.length > 0 && suggestionResult.rows[0].sim > 0.2) {
+          const originalLower = q.trim().toLowerCase();
+          const suggestionLower = suggestionResult.rows[0].title.toLowerCase();
+          console.log(`Comparing: "${originalLower}" vs "${suggestionLower}", similarity: ${suggestionResult.rows[0].sim}`);
+          if (originalLower !== suggestionLower && !suggestionLower.includes(originalLower)) {
+            suggestion = {
+              type: 'recipe',
+              text: suggestionResult.rows[0].title
+            };
+            console.log('Suggestion created:', suggestion);
+          } else {
+            console.log('Suggestion excluded (exact match or substring)');
+          }
+        } else {
+          console.log('No suggestion (low similarity or no results)');
+        }
+      } else if (ingredients.trim()) {
+        // Find similar ingredient names using similarity
+        const ingredientList = ingredients.split(',')[0].trim(); // Check first ingredient
+        const suggestionQuery = `
+          SELECT name, similarity(LOWER(name), LOWER($1)) as sim
+          FROM ingredients
+          ORDER BY sim DESC
+          LIMIT 1
+        `;
+        
+        const suggestionResult = await pool.query(suggestionQuery, [ingredientList]);
+        if (suggestionResult.rows.length > 0 && suggestionResult.rows[0].sim > 0.2) {
+          const originalLower = ingredientList.toLowerCase();
+          const suggestionLower = suggestionResult.rows[0].name.toLowerCase();
+          if (originalLower !== suggestionLower) {
+            suggestion = {
+              type: 'ingredient',
+              text: suggestionResult.rows[0].name
+            };
+          }
+        }
+      }
+    }
+
     // Return response
     res.json({
       recipes: recipesResult.rows,
       total,
       page: pageNum,
       limit: limitNum,
-      totalPages: Math.ceil(total / limitNum)
+      totalPages: Math.ceil(total / limitNum),
+      suggestion
     });
 
   } catch (error) {

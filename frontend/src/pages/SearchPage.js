@@ -10,6 +10,7 @@ const SearchPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
+  const [suggestion, setSuggestion] = useState(null); // For "Did you mean" feature
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -50,6 +51,7 @@ const SearchPage = () => {
       setTotalResults(response.data.total);
       setCurrentPage(response.data.page);
       setTotalPages(response.data.totalPages);
+      setSuggestion(response.data.suggestion || null); // Store suggestion from backend
     } catch (error) {
       console.error('Error fetching recipes:', error);
     } finally {
@@ -106,6 +108,17 @@ const SearchPage = () => {
         <p className="text-gray-600 dark:text-gray-400">
           Found {totalResults} recipe{totalResults !== 1 ? 's' : ''} matching your criteria
         </p>
+        
+        {/* Search Mode Indicator */}
+        <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+          {filters.q ? (
+            <span>Searching by recipe name: <span className="font-semibold text-gray-700 dark:text-gray-300">{filters.q}</span></span>
+          ) : filters.ingredients ? (
+            <span>Searching by ingredients: <span className="font-semibold text-gray-700 dark:text-gray-300">{filters.ingredients.split(',').join(', ')}</span></span>
+          ) : (
+            <span>Showing all recipes</span>
+          )}
+        </div>
       </div>
 
       {/* Mobile Filter Toggle */}
@@ -134,6 +147,28 @@ const SearchPage = () => {
 
         {/* Results Section */}
         <div className="flex-1">
+          {/* Did You Mean Suggestion */}
+          {suggestion && totalResults === 0 && (
+            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <p className="text-sm text-gray-700 dark:text-gray-300">
+                Did you mean:{' '}
+                <button
+                  onClick={() => {
+                    if (suggestion.type === 'recipe') {
+                      updateFilters({ ...filters, q: suggestion.text, ingredients: '', exclude: '' });
+                    } else {
+                      updateFilters({ ...filters, ingredients: suggestion.text, q: '', exclude: '' });
+                    }
+                  }}
+                  className="font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  {suggestion.text}
+                </button>
+                ?
+              </p>
+            </div>
+          )}
+          
           {/* Sort and View Options */}
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-2">
