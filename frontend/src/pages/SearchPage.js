@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const SearchPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [totalResults, setTotalResults] = useState(0);
@@ -11,6 +14,12 @@ const SearchPage = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
   const [suggestion, setSuggestion] = useState(null); // For "Did you mean" feature
+  
+  // AI Generation states
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
+  const [generatedRecipe, setGeneratedRecipe] = useState(null);
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -28,6 +37,19 @@ const SearchPage = () => {
 
   useEffect(() => {
     fetchRecipes();
+    
+    // Check if we should auto-trigger AI generation
+    if (searchParams.get('generateAI') === 'true') {
+      // Remove the generateAI param and trigger generation
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('generateAI');
+      setSearchParams(newParams, { replace: true });
+      
+      // Trigger AI generation after a short delay to let the page load
+      setTimeout(() => {
+        handleGenerateAI();
+      }, 500);
+    }
   }, [searchParams]);
 
   const fetchRecipes = async () => {
@@ -94,6 +116,68 @@ const SearchPage = () => {
     params.set('page', newPage.toString());
     setSearchParams(params);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleGenerateAI = async () => {
+    if (!user) {
+      alert('Please log in to generate AI recipes');
+      navigate('/login');
+      return;
+    }
+
+    setShowAIModal(true);
+    setAiLoading(true);
+    setAiError(null);
+    setGeneratedRecipe(null);
+
+    try {
+      // Get ingredients from current search (ingredients or text search)
+      let ingredients = [];
+      
+      if (filters.ingredients) {
+        // Ingredient search mode
+        ingredients = filters.ingredients.split(',').map(i => i.trim()).filter(Boolean);
+      } else if (filters.q) {
+        // Text search mode - extract possible ingredients from query
+        ingredients = filters.q.split(' ').filter(word => word.length > 3);
+      }
+
+      if (ingredients.length === 0) {
+        setAiError('Please provide ingredients or search terms to generate a recipe');
+        setAiLoading(false);
+        return;
+      }
+
+      const response = await api.post('/api/recipes/generate', {
+        ingredients,
+        preferences: {
+          diet: filters.diet || 'none',
+          maxTime: filters.maxTime ? parseInt(filters.maxTime) : null,
+        }
+      });
+
+      setGeneratedRecipe(response.data.recipe);
+    } catch (error) {
+      console.error('AI generation error:', error);
+      
+      if (error.response?.status === 429) {
+        setAiError('Daily AI generation limit reached (5 per day). Please try again tomorrow.');
+      } else if (error.response?.status === 401) {
+        setAiError('Please log in to generate recipes');
+      } else if (error.response?.data?.error) {
+        setAiError(error.response.data.error);
+      } else {
+        setAiError('Failed to generate recipe. Please try again.');
+      }
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const closeAIModal = () => {
+    setShowAIModal(false);
+    setGeneratedRecipe(null);
+    setAiError(null);
   };
 
   const activeFilterCount = Object.values(filters).filter(v => v && v !== 'recent').length;
@@ -192,10 +276,32 @@ const SearchPage = () => {
           {loading ? (
             <LoadingGrid />
           ) : recipes.length === 0 ? (
-            <EmptyState />
+            <EmptyState 
+              onGenerateAI={handleGenerateAI}
+              hasSearchTerms={!!(filters.ingredients || filters.q)}
+            />
           ) : (
             <>
               <RecipeGrid recipes={recipes} />
+              
+              {/* Subtle AI Option after results */}
+              {(filters.ingredients || filters.q) && (
+                <div className="mt-8 text-center">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                    Didn't find what you're looking for?
+                  </p>
+                  <button
+                    onClick={handleGenerateAI}
+                    className="inline-flex items-center gap-2 text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-medium transition"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Try AI Recipe Generator
+                  </button>
+                </div>
+              )}
+              
               {totalPages > 1 && (
                 <Pagination
                   currentPage={currentPage}
@@ -206,6 +312,160 @@ const SearchPage = () => {
             </>
           )}
         </div>
+      </div>
+
+      {/* AI Generation Modal */}
+      {showAIModal && (
+        <AIGenerationModal
+          loading={aiLoading}
+          error={aiError}
+          recipe={generatedRecipe}
+          onClose={closeAIModal}
+        />
+      )}
+    </div>
+  );
+};
+
+// AI Generation Modal Component
+const AIGenerationModal = ({ loading, error, recipe, onClose }) => {
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            AI Recipe Generator
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6">
+          {loading && (
+            <div className="text-center py-12">
+              <div className="inline-block animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-purple-600 mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400 text-lg">
+                AI is creating your recipe...
+              </p>
+              <p className="text-gray-500 dark:text-gray-500 text-sm mt-2">
+                This may take a few seconds
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
+              <p className="text-red-700 dark:text-red-400">{error}</p>
+            </div>
+          )}
+
+          {recipe && (
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">
+                {recipe.title}
+              </h3>
+              
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                {recipe.description}
+              </p>
+
+              {/* Recipe Metadata */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3 text-center">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Prep</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{recipe.prep_time}m</p>
+                </div>
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3 text-center">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Cook</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{recipe.cook_time}m</p>
+                </div>
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3 text-center">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Servings</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{recipe.servings}</p>
+                </div>
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-3 text-center">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Calories</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{recipe.calories}</p>
+                </div>
+              </div>
+
+              {/* Ingredients */}
+              <div className="mb-6">
+                <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Ingredients</h4>
+                <ul className="space-y-2">
+                  {recipe.ingredients.map((ing, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-green-600 mt-1">•</span>
+                      <span className="text-gray-700 dark:text-gray-300">
+                        {ing.quantity} {ing.unit} {ing.name}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Instructions */}
+              <div className="mb-6">
+                <h4 className="text-lg font-bold text-gray-900 dark:text-white mb-3">Instructions</h4>
+                <ol className="space-y-3">
+                  {recipe.instructions.map((step, idx) => (
+                    <li key={idx} className="flex gap-3">
+                      <span className="flex-shrink-0 w-6 h-6 bg-green-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
+                        {idx + 1}
+                      </span>
+                      <span className="text-gray-700 dark:text-gray-300 pt-0.5">
+                        {step}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {/* Tags */}
+              <div className="flex flex-wrap gap-2 mb-6">
+                <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full text-sm">
+                  {recipe.difficulty}
+                </span>
+                <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-sm">
+                  {recipe.cuisine}
+                </span>
+                <span className="px-3 py-1 bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 rounded-full text-sm">
+                  {recipe.spice_level}
+                </span>
+              </div>
+
+              {/* Success Message */}
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                <p className="text-green-700 dark:text-green-400 text-sm">
+                  ✓ Recipe generated successfully! This recipe is for your reference and not saved to the database.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {!loading && (
+          <div className="flex justify-end gap-3 p-6 border-t border-gray-200 dark:border-gray-700">
+            <button
+              onClick={onClose}
+              className="px-6 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+            >
+              Close
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -480,7 +740,7 @@ const LoadingGrid = () => {
 };
 
 // Empty State
-const EmptyState = () => {
+const EmptyState = ({ onGenerateAI, hasSearchTerms }) => {
   return (
     <div className="text-center py-16">
       <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -492,9 +752,22 @@ const EmptyState = () => {
       <p className="text-gray-600 dark:text-gray-400 mb-6">
         Try adjusting your filters or search terms
       </p>
-      <Link to="/" className="inline-block bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-300">
-        Back to Home
-      </Link>
+      <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+        <Link to="/" className="inline-block bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-300">
+          Back to Home
+        </Link>
+        {hasSearchTerms && (
+          <button
+            onClick={onGenerateAI}
+            className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-300"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            Generate with AI
+          </button>
+        )}
+      </div>
     </div>
   );
 };

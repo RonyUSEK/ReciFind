@@ -6,10 +6,11 @@ import ConfirmModal from '../components/Common/ConfirmModal';
 import useToast from '../hooks/useToast';
 import useConfirm from '../hooks/useConfirm';
 import ReportManagement from '../components/Admin/ReportManagement';
+import AIMetrics from '../components/Admin/AIMetrics';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const [mainTab, setMainTab] = useState('applications'); // applications, recipes, users, reports
+  const [mainTab, setMainTab] = useState('applications'); // applications, recipes, users, reports, ai-metrics
   const [activeTab, setActiveTab] = useState('pending'); // For sub-tabs (pending, all)
   const [applications, setApplications] = useState([]);
   const [recipes, setRecipes] = useState([]);
@@ -298,6 +299,16 @@ const AdminDashboard = () => {
               }`}
             >
               Content Reports
+            </button>
+            <button
+              onClick={() => setMainTab('ai-metrics')}
+              className={`pb-2 px-3 sm:px-4 font-semibold transition-colors whitespace-nowrap ${
+                mainTab === 'ai-metrics'
+                  ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              AI Metrics
             </button>
           </div>
         </div>
@@ -708,6 +719,11 @@ const AdminDashboard = () => {
         {/* Reports Tab Content */}
         {mainTab === 'reports' && (
           <ReportManagement />
+        )}
+
+        {/* AI Metrics Tab Content */}
+        {mainTab === 'ai-metrics' && (
+          <AIMetrics />
         )}
       </div>
 

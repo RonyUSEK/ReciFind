@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, requireRole } = require('../middleware/auth');
+const { AI_DAILY_LIMIT } = require('../middleware/rateLimiter');
 
 /**
  * GET /api/admin/chef-applications
@@ -291,6 +292,81 @@ router.post('/recipes/:id/reject', authenticate, requireRole(['admin']), async (
   } catch (error) {
     console.error('Error rejecting recipe:', error);
     res.status(500).json({ error: 'Failed to reject recipe' });
+  }
+});
+
+/**
+ * GET /api/admin/ai-usage
+ * Get remaining daily AI credits for users (admin only)
+ */
+router.get('/ai-usage', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const result = await pool.query(
+      `SELECT
+         u.id,
+         u.name,
+         u.email,
+         u.role,
+         COALESCE(adu.count, 0) AS used_today
+       FROM users u
+       LEFT JOIN ai_daily_usage adu
+         ON adu.user_id = u.id AND adu.day = CURRENT_DATE
+       ORDER BY u.role DESC, u.id ASC`
+    );
+
+    const users = result.rows.map((row) => {
+      const used = parseInt(row.used_today) || 0;
+      return {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+        dailyLimit: AI_DAILY_LIMIT,
+        usedToday: used,
+        remainingToday: Math.max(0, AI_DAILY_LIMIT - used),
+      };
+    });
+
+    res.json({ dailyLimit: AI_DAILY_LIMIT, users });
+  } catch (error) {
+    console.error('Error fetching AI usage:', error);
+    res.status(500).json({ error: 'Failed to fetch AI usage' });
+  }
+});
+
+/**
+ * POST /api/admin/ai-usage/reset
+ * Reset current admin's daily AI usage
+ */
+router.post('/ai-usage/reset', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.user.userId;
+
+    await pool.query('DELETE FROM ai_daily_usage WHERE user_id = $1 AND day = CURRENT_DATE', [userId]);
+    res.json({ message: 'AI usage reset successfully', userId });
+  } catch (error) {
+    console.error('Error resetting AI usage:', error);
+    res.status(500).json({ error: 'Failed to reset AI usage' });
+  }
+});
+
+/**
+ * POST /api/admin/ai-usage/:userId/reset
+ * Reset a user's daily AI usage (admin only)
+ */
+router.post('/ai-usage/:userId/reset', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { userId } = req.params;
+
+    await pool.query('DELETE FROM ai_daily_usage WHERE user_id = $1 AND day = CURRENT_DATE', [userId]);
+    res.json({ message: 'AI usage reset successfully', userId: parseInt(userId) });
+  } catch (error) {
+    console.error('Error resetting AI usage for user:', error);
+    res.status(500).json({ error: 'Failed to reset AI usage' });
   }
 });
 
@@ -650,6 +726,244 @@ router.put('/reports/:id/dismiss', authenticate, requireRole(['admin']), async (
   } catch (error) {
     console.error('Error dismissing report:', error);
     res.status(500).json({ error: 'Failed to dismiss report' });
+  }
+});
+
+/**
+ * GET /api/admin/ai-metrics
+ * Get AI recipe generation metrics and statistics
+ */
+router.get('/ai-metrics', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { period = '7d', userId } = req.query;
+
+    // Calculate date range based on period
+    let dateFilter = '';
+    let dateFilterAg = '';
+    const params = [];
+    
+    if (period === '24h') {
+      dateFilter = "AND created_at >= NOW() - INTERVAL '24 hours'";
+      dateFilterAg = "AND ag.created_at >= NOW() - INTERVAL '24 hours'";
+    } else if (period === '7d') {
+      dateFilter = "AND created_at >= NOW() - INTERVAL '7 days'";
+      dateFilterAg = "AND ag.created_at >= NOW() - INTERVAL '7 days'";
+    } else if (period === '30d') {
+      dateFilter = "AND created_at >= NOW() - INTERVAL '30 days'";
+      dateFilterAg = "AND ag.created_at >= NOW() - INTERVAL '30 days'";
+    } else if (period === 'all') {
+      dateFilter = '';
+      dateFilterAg = '';
+    }
+
+    // Add user filter if provided
+    let userFilter = '';
+    if (userId) {
+      userFilter = 'AND user_id = $1';
+      params.push(userId);
+    }
+
+    // Get overall statistics
+    const statsQuery = `
+      SELECT 
+        COUNT(*) as total_generations,
+        COUNT(*) FILTER (WHERE success = true) as successful_generations,
+        COUNT(*) FILTER (WHERE success = false) as failed_generations,
+        SUM(tokens_used) as total_tokens,
+        AVG(tokens_used) FILTER (WHERE tokens_used IS NOT NULL) as avg_tokens,
+        COUNT(DISTINCT user_id) as unique_users
+      FROM ai_generations
+      WHERE 1=1 ${dateFilter} ${userFilter}
+    `;
+
+    const statsResult = await pool.query(statsQuery, params);
+    const stats = statsResult.rows[0];
+
+    // Get generation over time (daily breakdown)
+    const timelineQuery = `
+      SELECT 
+        DATE(created_at) as date,
+        COUNT(*) as generations,
+        COUNT(*) FILTER (WHERE success = true) as successful,
+        COUNT(*) FILTER (WHERE success = false) as failed,
+        SUM(tokens_used) as tokens
+      FROM ai_generations
+      WHERE 1=1 ${dateFilter} ${userFilter}
+      GROUP BY DATE(created_at)
+      ORDER BY date DESC
+      LIMIT 30
+    `;
+
+    const timelineResult = await pool.query(timelineQuery, params);
+
+    // Get top users by generation count
+    const topUsersQuery = `
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        COUNT(*) as generation_count,
+        COUNT(*) FILTER (WHERE ag.success = true) as successful_count,
+        SUM(ag.tokens_used) as total_tokens
+      FROM ai_generations ag
+      JOIN users u ON ag.user_id = u.id
+      WHERE 1=1 ${dateFilterAg}
+      GROUP BY u.id, u.name, u.email
+      ORDER BY generation_count DESC
+      LIMIT 10
+    `;
+
+    const topUsersResult = await pool.query(topUsersQuery);
+
+    // Get most common ingredients used
+    const ingredientsQuery = `
+      SELECT 
+        UNNEST(ingredients) as ingredient,
+        COUNT(*) as usage_count
+      FROM ai_generations
+      WHERE success = true ${dateFilter} ${userFilter}
+      GROUP BY ingredient
+      ORDER BY usage_count DESC
+      LIMIT 20
+    `;
+
+    const ingredientsResult = await pool.query(ingredientsQuery, params);
+
+    // Get error breakdown if there are failures
+    const errorsQuery = `
+      SELECT 
+        error_message,
+        COUNT(*) as count
+      FROM ai_generations
+      WHERE success = false ${dateFilter} ${userFilter}
+      GROUP BY error_message
+      ORDER BY count DESC
+      LIMIT 10
+    `;
+
+    const errorsResult = await pool.query(errorsQuery, params);
+
+    res.json({
+      period,
+      stats: {
+        totalGenerations: parseInt(stats.total_generations) || 0,
+        successfulGenerations: parseInt(stats.successful_generations) || 0,
+        failedGenerations: parseInt(stats.failed_generations) || 0,
+        successRate: stats.total_generations > 0 
+          ? ((stats.successful_generations / stats.total_generations) * 100).toFixed(2)
+          : 0,
+        totalTokens: parseInt(stats.total_tokens) || 0,
+        avgTokens: parseFloat(stats.avg_tokens) || 0,
+        uniqueUsers: parseInt(stats.unique_users) || 0
+      },
+      timeline: timelineResult.rows,
+      topUsers: topUsersResult.rows,
+      topIngredients: ingredientsResult.rows,
+      errors: errorsResult.rows
+    });
+
+  } catch (error) {
+    console.error('Error fetching AI metrics:', error);
+    res.status(500).json({ error: 'Failed to fetch AI metrics' });
+  }
+});
+
+/**
+ * GET /api/admin/ai-generations
+ * Get detailed list of AI generations with filtering
+ */
+router.get('/ai-generations', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { 
+      page = 1, 
+      limit = 20, 
+      userId, 
+      success,
+      startDate,
+      endDate 
+    } = req.query;
+
+    const offset = (page - 1) * limit;
+    const params = [limit, offset];
+    let paramIndex = 3;
+
+    // Build WHERE clause
+    let whereConditions = [];
+    
+    if (userId) {
+      whereConditions.push(`ag.user_id = $${paramIndex}`);
+      params.push(userId);
+      paramIndex++;
+    }
+
+    if (success !== undefined) {
+      whereConditions.push(`ag.success = $${paramIndex}`);
+      params.push(success === 'true');
+      paramIndex++;
+    }
+
+    if (startDate) {
+      whereConditions.push(`ag.created_at >= $${paramIndex}`);
+      params.push(startDate);
+      paramIndex++;
+    }
+
+    if (endDate) {
+      whereConditions.push(`ag.created_at <= $${paramIndex}`);
+      params.push(endDate);
+      paramIndex++;
+    }
+
+    const whereClause = whereConditions.length > 0 
+      ? 'WHERE ' + whereConditions.join(' AND ')
+      : '';
+
+    // Get total count
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM ai_generations ag
+      ${whereClause}
+    `;
+    const countResult = await pool.query(countQuery, params.slice(2));
+    const total = parseInt(countResult.rows[0].total);
+
+    // Get paginated results
+    const query = `
+      SELECT 
+        ag.id,
+        ag.user_id,
+        u.name as user_name,
+        u.email as user_email,
+        ag.ingredients,
+        ag.preferences,
+        ag.tokens_used,
+        ag.success,
+        ag.error_message,
+        ag.created_at
+      FROM ai_generations ag
+      JOIN users u ON ag.user_id = u.id
+      ${whereClause}
+      ORDER BY ag.created_at DESC
+      LIMIT $1 OFFSET $2
+    `;
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      generations: result.rows,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching AI generations:', error);
+    res.status(500).json({ error: 'Failed to fetch AI generations' });
   }
 });
 

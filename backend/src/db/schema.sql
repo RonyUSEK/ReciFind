@@ -209,6 +209,34 @@ CREATE TABLE chat_sessions (
 -- Create index for chat sessions
 CREATE INDEX idx_chat_sessions_user_id ON chat_sessions(user_id);
 
+-- AI Daily Usage (daily credits for AI recipe generation)
+CREATE TABLE ai_daily_usage (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day DATE NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, day)
+);
+
+CREATE INDEX idx_ai_daily_usage_day ON ai_daily_usage(day);
+
+-- AI Recipe Generation Tracking (for admin metrics)
+CREATE TABLE ai_generations (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ingredients TEXT[] NOT NULL,
+    preferences JSONB DEFAULT '{}'::jsonb,
+    recipe_generated JSONB,
+    tokens_used INTEGER,
+    success BOOLEAN NOT NULL DEFAULT true,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ai_generations_user_id ON ai_generations(user_id);
+CREATE INDEX idx_ai_generations_created_at ON ai_generations(created_at);
+CREATE INDEX idx_ai_generations_success ON ai_generations(success);
+
 -- Recipe collections table (LOW PRIORITY - like Spotify playlists)
 CREATE TABLE recipe_collections (
     id SERIAL PRIMARY KEY,

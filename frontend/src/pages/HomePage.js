@@ -450,6 +450,39 @@ const HomePage = ({ theme, toggleTheme }) => {
             </button>
           </div>
           
+          {/* Subtle AI Option */}
+          {(activeIngredients.size > 0 || (searchMode === 'name' && searchTerm.trim())) && (
+            <div className="mt-3 text-center">
+              <button
+                onClick={() => {
+                  // Navigate to search page with AI generation flag
+                  const params = new URLSearchParams();
+                  if (searchMode === 'name' && searchTerm.trim()) {
+                    params.append('q', searchTerm.trim());
+                  } else {
+                    const includedIngredients = [];
+                    activeIngredients.forEach((mode, ingredient) => {
+                      if (mode === 'include') {
+                        includedIngredients.push(ingredient.toLowerCase());
+                      }
+                    });
+                    if (includedIngredients.length > 0) {
+                      params.append('ingredients', includedIngredients.join(','));
+                    }
+                  }
+                  params.append('generateAI', 'true');
+                  navigate(`/search?${params.toString()}`);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <span>or generate with AI</span>
+              </button>
+            </div>
+          )}
+          
           {/* Autofill Dropdown */}
           {searchMode === 'ingredients' && searchTerm.length > 0 && (() => {
             const suggestions = [

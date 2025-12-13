@@ -1,6 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, requireRole } = require('../middleware/auth');
+const { aiGenerationLimiter } = require('../middleware/rateLimiter');
+const { generateRecipe } = require('../services/recipeGenerator');
+const { isConfigured } = require('../services/openai');
+
+// Debug endpoint to check OpenAI configuration
+router.get('/debug/openai', authenticate, requireRole(['admin']), (req, res) => {
+  res.json({
+    configured: isConfigured(),
+    nodeEnv: process.env.NODE_ENV,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 /**
  * GET /api/recipes/search
@@ -168,17 +180,18 @@ router.get('/search', async (req, res) => {
       }
     }
 
-    // Build WHERE clause
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    // Determine sort order
+    // Determine sort order and add necessary conditions
     let orderBy = 'ORDER BY r.created_at DESC'; // Default: newest first
     
     switch (sort) {
       case 'time':
+        // Handle NULL values by filtering them out when sorting by time
+        conditions.push('r.prep_time IS NOT NULL AND r.cook_time IS NOT NULL');
         orderBy = 'ORDER BY (r.prep_time + r.cook_time) ASC';
         break;
       case 'calories':
+        // Handle NULL calories by filtering them out when sorting by calories
+        conditions.push('r.calories IS NOT NULL');
         orderBy = 'ORDER BY r.calories ASC';
         break;
       case 'rating':
@@ -189,6 +202,9 @@ router.get('/search', async (req, res) => {
       default:
         orderBy = 'ORDER BY r.created_at DESC';
     }
+
+    // Build WHERE clause AFTER adding sort conditions
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // Get total count
     const countQuery = `
@@ -272,9 +288,18 @@ router.get('/search', async (req, res) => {
       }
     }
 
+    // Normalize NULL values to 0 for numeric fields
+    const normalizedRecipes = recipesResult.rows.map(recipe => ({
+      ...recipe,
+      prep_time: recipe.prep_time || 0,
+      cook_time: recipe.cook_time || 0,
+      calories: recipe.calories || 0,
+      servings: recipe.servings || 0
+    }));
+
     // Return response
     res.json({
-      recipes: recipesResult.rows,
+      recipes: normalizedRecipes,
       total,
       page: pageNum,
       limit: limitNum,
@@ -674,6 +699,98 @@ router.get('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error fetching recipe:', error);
     res.status(500).json({ error: 'Failed to fetch recipe' });
+  }
+});
+
+/**
+ * POST /api/recipes/generate
+ * Generate AI recipe from ingredients (auth required, rate limited)
+ */
+router.post('/generate', authenticate, aiGenerationLimiter, async (req, res) => {
+  const pool = req.app.locals.pool;
+  const userId = req.user.userId;
+  
+  try {
+    // Check if OpenAI is configured
+    if (!isConfigured()) {
+      return res.status(503).json({ 
+        error: 'AI recipe generation is currently unavailable. OpenAI API not configured.' 
+      });
+    }
+
+    const { ingredients, preferences = {} } = req.body;
+
+    // Validate input
+    if (!ingredients || !Array.isArray(ingredients) || ingredients.length === 0) {
+      return res.status(400).json({ 
+        error: 'Please provide at least one ingredient' 
+      });
+    }
+
+    // Generate recipe using OpenAI
+    const result = await generateRecipe(ingredients, preferences);
+    const { recipe, usage } = result;
+
+    // Track the generation for admin metrics
+    try {
+      await pool.query(
+        `INSERT INTO ai_generations (user_id, ingredients, preferences, recipe_generated, tokens_used, success)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          userId,
+          ingredients,
+          preferences,
+          recipe,
+          usage?.total_tokens || null,
+          true
+        ]
+      );
+    } catch (trackError) {
+      console.error('Error tracking AI generation:', trackError);
+      // Don't fail the request if tracking fails
+    }
+
+    // Return the generated recipe (don't save to DB yet)
+    res.json({ 
+      recipe: recipe,
+      message: 'Recipe generated successfully. You can save it if you like it!'
+    });
+
+  } catch (error) {
+    console.error('Error generating recipe:', error);
+    
+    // Track failed generation
+    try {
+      await pool.query(
+        `INSERT INTO ai_generations (user_id, ingredients, preferences, success, error_message)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          userId,
+          req.body.ingredients || [],
+          req.body.preferences || {},
+          false,
+          error.message
+        ]
+      );
+    } catch (trackError) {
+      console.error('Error tracking failed AI generation:', trackError);
+    }
+    
+    if (error.message?.includes('API key')) {
+      return res.status(503).json({ 
+        error: 'AI service configuration error. Please contact support.' 
+      });
+    }
+    
+    if (error.message?.includes('parse')) {
+      return res.status(500).json({ 
+        error: 'Failed to generate recipe. Please try again with different ingredients.' 
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to generate recipe. Please try again later.' 
+    });
   }
 });
 

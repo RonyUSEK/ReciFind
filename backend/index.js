@@ -3,6 +3,9 @@ const cors = require('cors');
 const path = require('path');
 const { Pool } = require('pg');
 
+// Load environment variables from backend/.env (dev container does not inject all vars)
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -28,6 +31,37 @@ async function initializeDatabaseIfNeeded() {
   try {
     // Check if tables exist by querying users table
     await pool.query('SELECT 1 FROM users LIMIT 1');
+
+    // Ensure AI generations tracking table exists for admin metrics
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_generations (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        ingredients TEXT[] NOT NULL,
+        preferences JSONB DEFAULT '{}'::jsonb,
+        recipe_generated JSONB,
+        tokens_used INTEGER,
+        success BOOLEAN NOT NULL DEFAULT true,
+        error_message TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_ai_generations_user_id ON ai_generations(user_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_ai_generations_created_at ON ai_generations(created_at)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_ai_generations_success ON ai_generations(success)');
+
+    // Ensure AI daily usage table exists for daily credits + admin reset
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_daily_usage (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        day DATE NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, day)
+      );
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_ai_daily_usage_day ON ai_daily_usage(day)');
+
     if (process.env.NODE_ENV !== 'test') {
       console.log('✓ Database already initialized');
     }
@@ -62,8 +96,8 @@ async function initializeDatabaseIfNeeded() {
   }
 }
 
-// Initialize database and start server
-initializeDatabaseIfNeeded().catch(err => {
+// Initialize database once; tests import the app and rely on this side-effect.
+const initPromise = initializeDatabaseIfNeeded().catch(err => {
   console.error('❌ Database check error:', err.message);
 });
 
@@ -129,13 +163,15 @@ if (process.env.NODE_ENV === 'production') {
 // Start server (only if not in test mode)
 // Check if this file is being run directly (not required by another module)
 if (require.main === module) {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log('');
-    console.log('======================================');
-    console.log(`✓ ReciFind API running on port ${PORT}`);
-    console.log(`  Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log('======================================');
-    console.log('');
+  initPromise.finally(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log('');
+      console.log('======================================');
+      console.log(`✓ ReciFind API running on port ${PORT}`);
+      console.log(`  Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log('======================================');
+      console.log('');
+    });
   });
 }
 
