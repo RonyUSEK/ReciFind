@@ -1,7 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
+import IngredientSearchBar from '../components/Common/IngredientSearchBar';
+import { resolveImageUrl } from '../utils/resolveImageUrl';
+
+const AI_INGREDIENT_SUGGESTIONS = [
+  'Chicken', 'Beef', 'Salmon', 'Eggs', 'Tofu',
+  'Garlic', 'Onion', 'Tomato', 'Potato', 'Broccoli',
+  'Rice', 'Pasta', 'Bread', 'Milk', 'Cheese',
+  'Olive Oil', 'Butter', 'Salt', 'Pepper', 'Basil'
+];
 
 const SearchPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -20,6 +29,13 @@ const SearchPage = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
   const [generatedRecipe, setGeneratedRecipe] = useState(null);
+  const [aiDraft, setAiDraft] = useState({
+    dishIdea: '',
+    ingredients: [],
+    ingredientInput: '',
+    extraInstructions: '',
+  });
+  const [aiCredits, setAiCredits] = useState({ limit: null, used: null, remaining: null });
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -37,20 +53,70 @@ const SearchPage = () => {
 
   useEffect(() => {
     fetchRecipes();
-    
-    // Check if we should auto-trigger AI generation
-    if (searchParams.get('generateAI') === 'true') {
-      // Remove the generateAI param and trigger generation
+    // If navigated here with an AI intent flag, open the AI editor (but do not generate automatically)
+    const shouldOpenAI = searchParams.get('ai') === '1' || searchParams.get('ai') === 'true' || searchParams.get('generateAI') === 'true';
+    if (shouldOpenAI) {
       const newParams = new URLSearchParams(searchParams);
+      newParams.delete('ai');
       newParams.delete('generateAI');
       setSearchParams(newParams, { replace: true });
-      
-      // Trigger AI generation after a short delay to let the page load
-      setTimeout(() => {
-        handleGenerateAI();
-      }, 500);
+      openAIModal();
     }
   }, [searchParams]);
+
+  const deriveInitialAIDraft = () => {
+    const dishIdea = (searchParams.get('q') || filters.q || '').trim();
+    const ingredientsFromQuery = (searchParams.get('ingredients') || filters.ingredients || '')
+      .split(',')
+      .map(i => i.trim())
+      .filter(Boolean);
+
+    const ingredientsFromText = dishIdea
+      ? dishIdea
+          .split(/\s+/)
+          .map(s => s.trim())
+          .filter(s => s.length >= 3)
+      : [];
+
+    const merged = Array.from(new Set([
+      ...ingredientsFromQuery,
+      ...(ingredientsFromQuery.length ? [] : ingredientsFromText),
+    ].map(s => s.toLowerCase())));
+
+    return {
+      dishIdea,
+      ingredients: merged,
+      ingredientInput: '',
+      extraInstructions: '',
+    };
+  };
+
+  const openAIModal = () => {
+    if (!user) {
+      alert('Please log in to generate AI recipes');
+      navigate('/login');
+      return;
+    }
+
+    setAiError(null);
+    setGeneratedRecipe(null);
+    setAiDraft(deriveInitialAIDraft());
+    setShowAIModal(true);
+
+    // Best-effort: show remaining credits before the user generates
+    api.get('/api/recipes/ai-credits')
+      .then((res) => {
+        const limit = parseInt(res.data?.dailyLimit);
+        const used = parseInt(res.data?.usedToday);
+        const remaining = parseInt(res.data?.remainingToday);
+        if (!Number.isNaN(limit) && !Number.isNaN(used) && !Number.isNaN(remaining)) {
+          setAiCredits({ limit, used, remaining });
+        }
+      })
+      .catch(() => {
+        // ignore
+      });
+  };
 
   const fetchRecipes = async () => {
     setLoading(true);
@@ -118,50 +184,49 @@ const SearchPage = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleGenerateAI = async () => {
-    if (!user) {
-      alert('Please log in to generate AI recipes');
-      navigate('/login');
+  const submitAIGeneration = async () => {
+    const ingredients = (aiDraft.ingredients || []).map(s => s.trim()).filter(Boolean);
+    if (ingredients.length === 0) {
+      setAiError('Please add at least one ingredient.');
       return;
     }
 
-    setShowAIModal(true);
     setAiLoading(true);
     setAiError(null);
     setGeneratedRecipe(null);
 
     try {
-      // Get ingredients from current search (ingredients or text search)
-      let ingredients = [];
-      
-      if (filters.ingredients) {
-        // Ingredient search mode
-        ingredients = filters.ingredients.split(',').map(i => i.trim()).filter(Boolean);
-      } else if (filters.q) {
-        // Text search mode - extract possible ingredients from query
-        ingredients = filters.q.split(' ').filter(word => word.length > 3);
-      }
-
-      if (ingredients.length === 0) {
-        setAiError('Please provide ingredients or search terms to generate a recipe');
-        setAiLoading(false);
-        return;
-      }
-
       const response = await api.post('/api/recipes/generate', {
         ingredients,
         preferences: {
-          diet: filters.diet || 'none',
+          cuisine: filters.cuisine || null,
+          difficulty: filters.difficulty || null,
+          spice: filters.spice || null,
           maxTime: filters.maxTime ? parseInt(filters.maxTime) : null,
+          dishIdea: (aiDraft.dishIdea || '').trim() || null,
+          extraInstructions: (aiDraft.extraInstructions || '').trim() || null,
         }
       });
+
+      const limit = parseInt(response.headers?.['x-ai-daily-limit']);
+      const used = parseInt(response.headers?.['x-ai-daily-used']);
+      const remaining = parseInt(response.headers?.['x-ai-daily-remaining']);
+      if (!Number.isNaN(limit) && !Number.isNaN(used) && !Number.isNaN(remaining)) {
+        setAiCredits({ limit, used, remaining });
+      }
 
       setGeneratedRecipe(response.data.recipe);
     } catch (error) {
       console.error('AI generation error:', error);
-      
+
       if (error.response?.status === 429) {
-        setAiError('Daily AI generation limit reached (5 per day). Please try again tomorrow.');
+        const remaining = error.response?.data?.remaining;
+        const limit = error.response?.data?.limit;
+        const used = error.response?.data?.used;
+        if (typeof remaining === 'number' && typeof limit === 'number' && typeof used === 'number') {
+          setAiCredits({ limit, used, remaining });
+        }
+        setAiError(error.response?.data?.error || 'Daily AI generation limit reached. Please try again tomorrow.');
       } else if (error.response?.status === 401) {
         setAiError('Please log in to generate recipes');
       } else if (error.response?.data?.error) {
@@ -180,21 +245,31 @@ const SearchPage = () => {
     setAiError(null);
   };
 
+  const findRealRecipesLikeThis = (recipe) => {
+    const names = (recipe?.ingredients || []).map(i => i?.name).filter(Boolean);
+    const unique = Array.from(new Set(names.map(s => String(s).toLowerCase()))).slice(0, 8);
+    if (unique.length === 0) return;
+    const params = new URLSearchParams();
+    params.append('ingredients', unique.join(','));
+    navigate(`/search?${params.toString()}`);
+    closeAIModal();
+  };
+
   const activeFilterCount = Object.values(filters).filter(v => v && v !== 'recent').length;
 
   return (
-    <div className="w-full px-3 sm:px-4 lg:max-w-7xl lg:mx-auto py-6 sm:py-8">
+    <div className="w-full px-3 sm:px-4 lg:max-w-7xl lg:mx-auto py-4 sm:py-8">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-2">
           Search Recipes
         </h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <p className="text-sm sm:text-base text-gray-600 dark:text-gray-400">
           Found {totalResults} recipe{totalResults !== 1 ? 's' : ''} matching your criteria
         </p>
         
         {/* Search Mode Indicator */}
-        <div className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+        <div className="mt-2 sm:mt-3 text-sm text-gray-500 dark:text-gray-400">
           {filters.q ? (
             <span>Searching by recipe name: <span className="font-semibold text-gray-700 dark:text-gray-300">{filters.q}</span></span>
           ) : filters.ingredients ? (
@@ -254,7 +329,7 @@ const SearchPage = () => {
           )}
           
           {/* Sort and View Options */}
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Sort by:
@@ -277,7 +352,7 @@ const SearchPage = () => {
             <LoadingGrid />
           ) : recipes.length === 0 ? (
             <EmptyState 
-              onGenerateAI={handleGenerateAI}
+              onGenerateAI={openAIModal}
               hasSearchTerms={!!(filters.ingredients || filters.q)}
             />
           ) : (
@@ -291,7 +366,7 @@ const SearchPage = () => {
                     Didn't find what you're looking for?
                   </p>
                   <button
-                    onClick={handleGenerateAI}
+                    onClick={openAIModal}
                     className="inline-flex items-center gap-2 text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-medium transition"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -320,7 +395,16 @@ const SearchPage = () => {
           loading={aiLoading}
           error={aiError}
           recipe={generatedRecipe}
+          draft={aiDraft}
+          setDraft={setAiDraft}
+          credits={aiCredits}
           onClose={closeAIModal}
+          onSubmit={submitAIGeneration}
+          onFindRealRecipes={findRealRecipesLikeThis}
+          onEdit={() => {
+            setGeneratedRecipe(null);
+            setAiError(null);
+          }}
         />
       )}
     </div>
@@ -328,18 +412,52 @@ const SearchPage = () => {
 };
 
 // AI Generation Modal Component
-const AIGenerationModal = ({ loading, error, recipe, onClose }) => {
+const AIGenerationModal = ({ loading, error, recipe, draft, setDraft, credits, onClose, onSubmit, onFindRealRecipes, onEdit }) => {
+  const addIngredient = (raw) => {
+    const value = String(raw || '').trim().toLowerCase();
+    if (!value) return;
+    setDraft((prev) => {
+      const nextIngredients = Array.from(new Set([...(prev.ingredients || []), value]));
+      return { ...prev, ingredients: nextIngredients, ingredientInput: '' };
+    });
+  };
+
+  const removeIngredient = (value) => {
+    setDraft((prev) => ({
+      ...prev,
+      ingredients: (prev.ingredients || []).filter((i) => i !== value),
+    }));
+  };
+
+  const coverage = useMemo(() => {
+    if (!recipe) return null;
+    const picked = (draft.ingredients || []).map(s => String(s).toLowerCase());
+    const usedNames = (recipe.ingredients || []).map(i => String(i?.name || '').toLowerCase()).filter(Boolean);
+    const used = picked.filter(p => usedNames.some(n => n.includes(p) || p.includes(n)));
+    const missing = picked.filter(p => !used.includes(p));
+    const pct = picked.length ? Math.round((used.length / picked.length) * 100) : 0;
+    return { pct, used, missing };
+  }, [recipe, draft.ingredients]);
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/50 z-50">
+      <div className="h-full w-full flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="bg-white dark:bg-gray-800 w-full h-full sm:h-auto sm:max-h-[90vh] sm:rounded-lg overflow-hidden sm:max-w-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+        <div className="sticky top-0 z-10 flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 backdrop-blur">
+          <div>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            AI Recipe Generator
-          </h2>
+              AI Recipe Generator
+            </h2>
+            {credits?.limit != null && credits?.remaining != null ? (
+              <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                Credits left today: <span className="font-semibold">{credits.remaining}</span> / {credits.limit}
+              </div>
+            ) : null}
+          </div>
           <button
             onClick={onClose}
             className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -351,7 +469,7 @@ const AIGenerationModal = ({ loading, error, recipe, onClose }) => {
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(100vh-140px)] sm:max-h-[calc(90vh-140px)]">
           {loading && (
             <div className="text-center py-12">
               <div className="inline-block animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-purple-600 mb-4"></div>
@@ -370,8 +488,115 @@ const AIGenerationModal = ({ loading, error, recipe, onClose }) => {
             </div>
           )}
 
+          {!recipe && !loading && (
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                  Ingredients (edit before generating)
+                </label>
+
+                <IngredientSearchBar
+                  inputId="ai-ingredient-search"
+                  className="shadow-xl rounded-lg sm:rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+                  selectedValues={draft.ingredients || []}
+                  chips={(draft.ingredients || []).map((ing) => (
+                    <span
+                      key={ing}
+                      className="inline-flex items-center gap-2 text-sm font-medium px-3 py-1 rounded-full shadow-sm bg-green-100 dark:bg-green-700 text-green-800 dark:text-green-100"
+                    >
+                      <span className="capitalize">{ing}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeIngredient(ing)}
+                        className="font-bold leading-none opacity-80 hover:opacity-100"
+                        aria-label={`Remove ${ing}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  inputValue={draft.ingredientInput}
+                  setInputValue={(value) => setDraft((prev) => ({ ...prev, ingredientInput: value }))}
+                  allSuggestions={AI_INGREDIENT_SUGGESTIONS}
+                  onAdd={addIngredient}
+                  placeholder={(draft.ingredients || []).length === 0 ? 'e.g., chicken, basil…' : ''}
+                  actions={
+                    <button
+                      type="button"
+                      onClick={() => addIngredient(draft.ingredientInput)}
+                      className="font-bold py-2 px-4 rounded-xl transition duration-300 shadow-md flex-shrink-0 text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 w-full sm:w-auto"
+                    >
+                      Add
+                    </button>
+                  }
+                />
+
+                {(draft.ingredients || []).length === 0 ? (
+                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                    Tip: start with what you already have.
+                  </p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                  Recipe idea (optional)
+                </label>
+                <input
+                  value={draft.dishIdea}
+                  onChange={(e) => setDraft({ ...draft, dishIdea: e.target.value })}
+                  placeholder="e.g., spicy chicken pasta"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  This helps ReciFind style the recipe like a real menu item.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                  Extra instructions (optional)
+                </label>
+                <textarea
+                  value={draft.extraInstructions}
+                  onChange={(e) => setDraft({ ...draft, extraInstructions: e.target.value })}
+                  placeholder="e.g., make it kid-friendly, no dairy, one-pan, extra crispy"
+                  rows={4}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+
+              <div className="bg-gray-50 dark:bg-gray-900/30 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white">What makes this ReciFind AI?</div>
+                <div className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                  It tries to maximize ingredient match and then lets you jump back into real recipes with one tap.
+                </div>
+              </div>
+            </div>
+          )}
+
           {recipe && (
             <div>
+              {coverage ? (
+                <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-white">Ingredient match</div>
+                    <div className="text-sm font-bold text-gray-900 dark:text-white">{coverage.pct}%</div>
+                  </div>
+                  <div className="mt-2 h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                    <div className="h-2 bg-green-600" style={{ width: `${coverage.pct}%` }} />
+                  </div>
+                  {coverage.missing.length > 0 ? (
+                    <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                      Missing: {coverage.missing.slice(0, 6).join(', ')}
+                      {coverage.missing.length > 6 ? '…' : ''}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">Great match — it used everything you picked.</div>
+                  )}
+                </div>
+              ) : null}
+
               <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3">
                 {recipe.title}
               </h3>
@@ -451,22 +676,49 @@ const AIGenerationModal = ({ loading, error, recipe, onClose }) => {
                   ✓ Recipe generated successfully! This recipe is for your reference and not saved to the database.
                 </p>
               </div>
+
+              <div className="mt-4 flex flex-col sm:flex-row gap-3">
+                <button
+                  type="button"
+                  onClick={() => onFindRealRecipes(recipe)}
+                  className="w-full sm:w-auto px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition"
+                >
+                  Find real recipes like this
+                </button>
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  className="w-full sm:w-auto px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-semibold rounded-lg"
+                >
+                  Edit inputs
+                </button>
+              </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
         {!loading && (
-          <div className="flex justify-end gap-3 p-6 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex flex-col sm:flex-row justify-end gap-3 p-4 sm:p-6 border-t border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95">
+            {!recipe ? (
+              <button
+                onClick={onSubmit}
+                className="w-full sm:w-auto px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition disabled:opacity-60"
+                disabled={loading}
+              >
+                Generate recipe
+              </button>
+            ) : null}
             <button
               onClick={onClose}
-              className="px-6 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+              className="w-full sm:w-auto px-6 py-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition"
             >
               Close
             </button>
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 };
@@ -670,7 +922,7 @@ const RecipeCard = ({ recipe }) => {
             <div className="absolute inset-0 bg-gray-300 dark:bg-gray-700 animate-pulse" />
           )}
           <img
-            src={recipe.image_url || 'https://via.placeholder.com/400x300?text=Recipe'}
+            src={resolveImageUrl(recipe.image_url) || 'https://via.placeholder.com/400x300?text=Recipe'}
             alt={recipe.title}
             className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
             onLoad={() => setImageLoaded(true)}

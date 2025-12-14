@@ -10,6 +10,8 @@ DROP TABLE IF EXISTS comments CASCADE;
 DROP TABLE IF EXISTS likes CASCADE;
 DROP TABLE IF EXISTS favorites CASCADE;
 DROP TABLE IF EXISTS recipe_approvals CASCADE;
+DROP TABLE IF EXISTS recipe_pending_ingredients CASCADE;
+DROP TABLE IF EXISTS ingredient_requests CASCADE;
 DROP TABLE IF EXISTS recipe_ingredients CASCADE;
 DROP TABLE IF EXISTS ingredients CASCADE;
 DROP TABLE IF EXISTS recipes CASCADE;
@@ -103,6 +105,36 @@ CREATE TABLE ingredients (
 -- Create index on ingredient name for faster searches
 CREATE INDEX idx_ingredients_name ON ingredients(name);
 CREATE INDEX idx_ingredients_category ON ingredients(category);
+
+-- Ingredient requests (moderation queue)
+CREATE TABLE ingredient_requests (
+    id SERIAL PRIMARY KEY,
+    requested_name VARCHAR(100) NOT NULL,
+    normalized_name VARCHAR(100) UNIQUE NOT NULL,
+    requested_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    admin_notes TEXT,
+    reviewed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ingredient_requests_status ON ingredient_requests(status);
+CREATE INDEX idx_ingredient_requests_normalized_name ON ingredient_requests(normalized_name);
+
+-- Pending ingredients linked to a recipe (used while ingredient requests await approval)
+CREATE TABLE recipe_pending_ingredients (
+    id SERIAL PRIMARY KEY,
+    recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    ingredient_request_id INTEGER NOT NULL REFERENCES ingredient_requests(id) ON DELETE CASCADE,
+    requested_name VARCHAR(100) NOT NULL,
+    quantity VARCHAR(50),
+    unit VARCHAR(50),
+    UNIQUE(recipe_id, ingredient_request_id)
+);
+
+CREATE INDEX idx_recipe_pending_ingredients_recipe_id ON recipe_pending_ingredients(recipe_id);
+CREATE INDEX idx_recipe_pending_ingredients_request_id ON recipe_pending_ingredients(ingredient_request_id);
 
 -- Recipe ingredients junction table
 CREATE TABLE recipe_ingredients (

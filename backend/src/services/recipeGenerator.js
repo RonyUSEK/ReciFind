@@ -16,14 +16,34 @@ async function generateRecipe(ingredients, preferences = {}) {
   
   // Build the prompt based on ingredients and preferences
   const ingredientsList = ingredients.join(', ');
-  const dietInfo = preferences.diet && preferences.diet !== 'none' 
-    ? `Dietary preference: ${preferences.diet}.` 
+  const dietInfo = preferences.diet && preferences.diet !== 'none'
+    ? `Dietary preference: ${preferences.diet}.`
     : '';
-  const timeInfo = preferences.maxTime 
-    ? `Maximum cooking time: ${preferences.maxTime} minutes.` 
+  const timeInfo = preferences.maxTime
+    ? `Maximum cooking time: ${preferences.maxTime} minutes.`
     : '';
+  const dishIdeaInfo = preferences.dishIdea
+    ? `Recipe idea/title: ${preferences.dishIdea}.`
+    : '';
+  const extraInfo = preferences.extraInstructions
+    ? `Extra instructions from the user: ${preferences.extraInstructions}.`
+    : '';
+  const cuisineInfo = preferences.cuisine ? `Preferred cuisine: ${preferences.cuisine}.` : '';
+  const difficultyInfo = preferences.difficulty ? `Preferred difficulty: ${preferences.difficulty}.` : '';
+  const spiceInfo = preferences.spice ? `Preferred spice level: ${preferences.spice}.` : '';
 
-  const prompt = `Create a recipe using: ${ingredientsList}. ${dietInfo} ${timeInfo}
+  const prompt = `You are ReciFind's recipe generator.
+
+Create a recipe that maximizes ingredient match with the user's picked ingredients.
+
+User ingredients: ${ingredientsList}.
+${dishIdeaInfo} ${dietInfo} ${timeInfo} ${cuisineInfo} ${difficultyInfo} ${spiceInfo}
+${extraInfo}
+
+Important ReciFind rules:
+- Use as many of the user ingredients as reasonably possible.
+- If you need pantry staples (salt, oil, water), put them in "optional_staples".
+- Keep the output practical for a student cook.
 
 JSON format:
 {
@@ -31,13 +51,19 @@ JSON format:
   "description": "Brief description",
   "instructions": ["Step 1", "Step 2", "..."],
   "ingredients": [{"name": "ingredient", "quantity": "500", "unit": "g"}],
+  "optional_staples": ["salt", "olive oil"],
   "prep_time": 10,
   "cook_time": 20,
   "servings": 4,
   "difficulty": "easy",
   "cuisine": "Italian",
   "spice_level": "mild",
-  "calories": 450
+  "calories": 450,
+  "recifind_notes": {
+    "uses_user_ingredients": ["chicken", "garlic"],
+    "missing_user_ingredients": ["basil"],
+    "why_this_recipe": "One sentence explanation"
+  }
 }
 
 Rules: difficulty="easy|medium|hard", spice_level="mild|medium|hot", times in minutes, calories per serving.`;
@@ -48,7 +74,7 @@ Rules: difficulty="easy|medium|hard", spice_level="mild|medium|hot", times in mi
       messages: [
         {
           role: "system",
-          content: "You are a chef. Create recipes in JSON format only."
+          content: "You are a chef inside ReciFind. Output JSON only, no markdown."
         },
         {
           role: "user",

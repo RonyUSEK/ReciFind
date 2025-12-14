@@ -165,11 +165,6 @@ const Header = ({ theme, toggleTheme }) => {
                 )}
               </div>
                 
-              {process.env.NODE_ENV !== 'production' && (
-                <div className="ml-4 text-xs text-gray-600 dark:text-gray-300">
-                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">API: {API_BASE_URL}</span>
-                </div>
-              )}
             </div>
           ) : (
             <Link to="/login">

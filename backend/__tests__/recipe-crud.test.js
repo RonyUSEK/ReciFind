@@ -13,6 +13,7 @@ describe('Recipe CRUD API (Chef Only)', () => {
   let userToken;
   let adminToken;
   let chefUser;
+  const createdRecipeIds = new Set();
 
   beforeAll(async () => {
     // Get test users from database
@@ -62,6 +63,10 @@ describe('Recipe CRUD API (Chef Only)', () => {
         .set('Authorization', `Bearer ${chefToken}`)
         .send(newRecipe)
         .expect(201);
+
+      if (response.body?.id) {
+        createdRecipeIds.add(response.body.id);
+      }
 
       expect(response.body).toHaveProperty('id');
       expect(response.body.title).toBe(newRecipe.title);
@@ -156,6 +161,7 @@ describe('Recipe CRUD API (Chef Only)', () => {
         ['Update Test Recipe', 'To be updated', '["Step 1"]', chefUser.id]
       );
       testRecipeId = recipe.rows[0].id;
+      createdRecipeIds.add(testRecipeId);
     });
 
     test('should allow chef to update own recipe', async () => {
@@ -215,6 +221,15 @@ describe('Recipe CRUD API (Chef Only)', () => {
         ['Delete Test Recipe', 'Will be deleted', '["Step 1"]', chefUser.id]
       );
       deleteTestRecipeId = recipe.rows[0].id;
+      createdRecipeIds.add(deleteTestRecipeId);
+    });
+
+    afterEach(async () => {
+      if (!deleteTestRecipeId) return;
+      // If a test fails before deleting, ensure we don't leave it behind.
+      await pool.query('DELETE FROM recipes WHERE id = $1', [deleteTestRecipeId]);
+      createdRecipeIds.delete(deleteTestRecipeId);
+      deleteTestRecipeId = null;
     });
 
     test('should allow chef to delete own recipe', async () => {
@@ -254,6 +269,10 @@ describe('Recipe CRUD API (Chef Only)', () => {
   });
 
   afterAll(async () => {
+    // Cleanup any recipes created by this test file (best-effort).
+    if (createdRecipeIds.size > 0) {
+      await pool.query('DELETE FROM recipes WHERE id = ANY($1::int[])', [Array.from(createdRecipeIds)]);
+    }
     await pool.end();
   });
 });

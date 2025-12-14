@@ -36,7 +36,7 @@ const Dashboard = () => {
 
   return (
     <main className="w-full px-3 sm:px-4 lg:max-w-7xl lg:mx-auto py-6 sm:py-8 lg:py-10">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 sm:p-6">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-4">
           Dashboard
         </h1>
@@ -65,7 +65,7 @@ const Dashboard = () => {
                 </p>
                 <button
                   onClick={() => navigate('/apply-chef')}
-                  className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
+                  className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
                 >
                   Apply as Chef
                 </button>
@@ -81,7 +81,7 @@ const Dashboard = () => {
                 </p>
                 <button
                   onClick={() => navigate('/application-status')}
-                  className="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
+                  className="w-full sm:w-auto bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
                 >
                   View Application Status
                 </button>
@@ -97,7 +97,7 @@ const Dashboard = () => {
                 </p>
                 <button
                   onClick={() => navigate('/application-status')}
-                  className="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
+                  className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
                 >
                   View Feedback & Reapply
                 </button>

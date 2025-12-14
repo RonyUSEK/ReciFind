@@ -18,10 +18,11 @@ const api = require('../utils/api').default;
 
 // Mock useNavigate
 const mockedNavigate = jest.fn();
+let mockSearchParams = new URLSearchParams('ingredients=chicken,garlic');
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   useNavigate: () => mockedNavigate,
-  useSearchParams: () => [new URLSearchParams(), jest.fn()],
+  useSearchParams: () => [mockSearchParams, jest.fn()],
 }));
 
 // Mock AuthContext
@@ -41,14 +42,24 @@ const TestWrapper = ({ children }) => (
 describe('AI Recipe Generation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Default mock for search endpoint
-    api.get.mockResolvedValue({
-      data: {
-        recipes: [],
-        total: 0,
-        page: 1,
-        totalPages: 0
+    mockSearchParams = new URLSearchParams('ingredients=chicken,garlic');
+
+    // Default mocks for endpoints used by SearchPage
+    api.get.mockImplementation((url) => {
+      if (url === '/api/recipes/ai-credits') {
+        return Promise.resolve({
+          data: { dailyLimit: 10, usedToday: 0, remainingToday: 10 }
+        });
       }
+
+      return Promise.resolve({
+        data: {
+          recipes: [],
+          total: 0,
+          page: 1,
+          totalPages: 0
+        }
+      });
     });
   });
 
@@ -64,13 +75,11 @@ describe('AI Recipe Generation', () => {
       expect(loadingElements.length).toBe(0);
     });
 
-    // Wait a bit for rendering
+
     await waitFor(() => {
-      // Should show empty state (check for multiple possible texts)
-      const emptyText = screen.queryByText(/no recipes found/i) || 
-                        screen.queryByText(/back to home/i);
-      expect(emptyText).toBeInTheDocument();
-    }, { timeout: 2000 });
+      expect(screen.getByText(/no recipes found/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /generate with ai/i })).toBeInTheDocument();
+    });
   });
 
   test('should call AI generation API when generate button clicked', async () => {
@@ -98,22 +107,24 @@ describe('AI Recipe Generation', () => {
       </TestWrapper>
     );
 
+    const openAiButton = await screen.findByRole('button', { name: /generate with ai/i });
+    fireEvent.click(openAiButton);
+
     await waitFor(() => {
-      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/ai recipe generator/i)).toBeInTheDocument();
     });
 
-    // Find and click AI generation button (if it exists)
-    const generateButton = screen.queryByText(/generate with ai/i);
-    if (generateButton) {
-      fireEvent.click(generateButton);
-      
-      await waitFor(() => {
-        expect(api.post).toHaveBeenCalledWith(
-          '/api/recipes/generate',
-          expect.any(Object)
-        );
-      });
-    }
+    fireEvent.click(screen.getByRole('button', { name: /generate recipe/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(
+        '/api/recipes/generate',
+        expect.objectContaining({
+          ingredients: expect.arrayContaining(['chicken', 'garlic']),
+          preferences: expect.any(Object)
+        })
+      );
+    });
   });
 
   test('should handle AI generation error gracefully', async () => {
@@ -130,19 +141,17 @@ describe('AI Recipe Generation', () => {
       </TestWrapper>
     );
 
+    const openAiButton = await screen.findByRole('button', { name: /generate with ai/i });
+    fireEvent.click(openAiButton);
     await waitFor(() => {
-      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/ai recipe generator/i)).toBeInTheDocument();
     });
 
-    // Try to generate
-    const generateButton = screen.queryByText(/generate with ai/i);
-    if (generateButton) {
-      fireEvent.click(generateButton);
-      
-      await waitFor(() => {
-        // Should handle error (show error message or toast)
-        expect(api.post).toHaveBeenCalled();
-      });
-    }
+    fireEvent.click(screen.getByRole('button', { name: /generate recipe/i }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalled();
+      expect(screen.getByText(/rate limit reached/i)).toBeInTheDocument();
+    });
   });
 });

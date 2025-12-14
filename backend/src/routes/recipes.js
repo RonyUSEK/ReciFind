@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate, requireRole } = require('../middleware/auth');
-const { aiGenerationLimiter } = require('../middleware/rateLimiter');
+const { aiGenerationLimiter, AI_DAILY_LIMIT } = require('../middleware/rateLimiter');
 const { generateRecipe } = require('../services/recipeGenerator');
 const { isConfigured } = require('../services/openai');
 
@@ -12,6 +12,32 @@ router.get('/debug/openai', authenticate, requireRole(['admin']), (req, res) => 
     nodeEnv: process.env.NODE_ENV,
     timestamp: new Date().toISOString(),
   });
+});
+
+/**
+ * GET /api/recipes/ai-credits
+ * Get remaining AI generation credits for the current user (auth required)
+ */
+router.get('/ai-credits', authenticate, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const userId = req.user.userId;
+
+    const result = await pool.query(
+      'SELECT COALESCE(count, 0) AS used_today FROM ai_daily_usage WHERE user_id = $1 AND day = CURRENT_DATE',
+      [userId]
+    );
+
+    const usedToday = parseInt(result.rows[0]?.used_today) || 0;
+    res.json({
+      dailyLimit: AI_DAILY_LIMIT,
+      usedToday,
+      remainingToday: Math.max(0, AI_DAILY_LIMIT - usedToday),
+    });
+  } catch (error) {
+    console.error('Error fetching AI credits:', error);
+    res.status(500).json({ error: 'Failed to fetch AI credits' });
+  }
 });
 
 /**
@@ -418,6 +444,8 @@ router.post('/', authenticate, requireRole(['chef', 'admin']), async (req, res) 
       image_url
     } = req.body;
 
+    const normalizeName = (value) => String(value || '').trim().toLowerCase();
+
     // Validate required fields
     if (!title || !description || !instructions) {
       return res.status(400).json({ 
@@ -425,19 +453,98 @@ router.post('/', authenticate, requireRole(['chef', 'admin']), async (req, res) 
       });
     }
 
-    // Insert recipe
+    await pool.query('BEGIN');
+
+    const authorResult = await pool.query(
+      'SELECT id, role, is_verified FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    const author = authorResult.rows[0];
+    const isVerifiedChef = author?.role === 'chef' && author?.is_verified === true;
+
+    const existingIngredientLinks = [];
+    const pendingIngredientLinks = [];
+
+    if (ingredients && Array.isArray(ingredients)) {
+      for (const ing of ingredients) {
+        const rawName = String(ing?.name || '').trim();
+        const normalized = normalizeName(rawName);
+        if (!normalized) continue;
+
+        // Strict: recipes should use existing ingredients. If missing, create a moderated request
+        const ingredientResult = await pool.query(
+          'SELECT id, name FROM ingredients WHERE LOWER(name) = $1',
+          [normalized]
+        );
+
+        if (ingredientResult.rows.length > 0) {
+          existingIngredientLinks.push({
+            ingredientId: ingredientResult.rows[0].id,
+            quantity: ing?.quantity || '',
+            unit: ing?.unit || ''
+          });
+          continue;
+        }
+
+        const requestResult = await pool.query(
+          `INSERT INTO ingredient_requests (requested_name, normalized_name, requested_by)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (normalized_name)
+           DO UPDATE SET requested_name = EXCLUDED.requested_name
+           RETURNING id, status`,
+          [rawName, normalized, req.user.id]
+        );
+
+        const request = requestResult.rows[0];
+
+        if (request.status === 'approved') {
+          const approvedIngredient = await pool.query(
+            'SELECT id FROM ingredients WHERE LOWER(name) = $1',
+            [normalized]
+          );
+
+          if (approvedIngredient.rows.length > 0) {
+            existingIngredientLinks.push({
+              ingredientId: approvedIngredient.rows[0].id,
+              quantity: ing?.quantity || '',
+              unit: ing?.unit || ''
+            });
+          } else {
+            pendingIngredientLinks.push({
+              requestId: request.id,
+              requestedName: rawName,
+              quantity: ing?.quantity || '',
+              unit: ing?.unit || ''
+            });
+          }
+        } else {
+          pendingIngredientLinks.push({
+            requestId: request.id,
+            requestedName: rawName,
+            quantity: ing?.quantity || '',
+            unit: ing?.unit || ''
+          });
+        }
+      }
+    }
+
+    const hasPendingIngredients = pendingIngredientLinks.length > 0;
+    const recipeStatus = req.user.role === 'admin'
+      ? 'approved'
+      : (isVerifiedChef && !hasPendingIngredients ? 'approved' : 'pending');
+
     const recipeResult = await pool.query(
       `INSERT INTO recipes (
-        title, description, instructions, chef_id, 
-        prep_time, cook_time, servings, difficulty, 
-        cuisine, spice_level, calories, image_url, 
+        title, description, instructions, chef_id,
+        prep_time, cook_time, servings, difficulty,
+        cuisine, spice_level, calories, image_url,
         status, source_type
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', 'chef')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'chef')
       RETURNING *`,
       [
-        title, 
-        description, 
-        JSON.stringify(instructions), 
+        title,
+        description,
+        JSON.stringify(instructions),
         req.user.id,
         prep_time || null,
         cook_time || null,
@@ -446,43 +553,44 @@ router.post('/', authenticate, requireRole(['chef', 'admin']), async (req, res) 
         cuisine || null,
         spice_level || null,
         calories || null,
-        image_url || null
+        image_url || null,
+        recipeStatus,
       ]
     );
 
     const recipe = recipeResult.rows[0];
 
-    // Insert ingredients if provided
-    if (ingredients && Array.isArray(ingredients)) {
-      for (const ing of ingredients) {
-        // Check if ingredient exists
-        let ingredientResult = await pool.query(
-          'SELECT id FROM ingredients WHERE LOWER(name) = LOWER($1)',
-          [ing.name]
-        );
-
-        let ingredientId;
-        if (ingredientResult.rows.length === 0) {
-          // Create new ingredient
-          const newIng = await pool.query(
-            'INSERT INTO ingredients (name) VALUES ($1) RETURNING id',
-            [ing.name]
-          );
-          ingredientId = newIng.rows[0].id;
-        } else {
-          ingredientId = ingredientResult.rows[0].id;
-        }
-
-        // Link to recipe
-        await pool.query(
-          'INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit) VALUES ($1, $2, $3, $4)',
-          [recipe.id, ingredientId, ing.quantity || '', ing.unit || '']
-        );
-      }
+    for (const link of existingIngredientLinks) {
+      await pool.query(
+        `INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (recipe_id, ingredient_id)
+         DO UPDATE SET quantity = EXCLUDED.quantity, unit = EXCLUDED.unit`,
+        [recipe.id, link.ingredientId, link.quantity, link.unit]
+      );
     }
 
+    for (const pending of pendingIngredientLinks) {
+      await pool.query(
+        `INSERT INTO recipe_pending_ingredients (recipe_id, ingredient_request_id, requested_name, quantity, unit)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (recipe_id, ingredient_request_id)
+         DO UPDATE SET requested_name = EXCLUDED.requested_name, quantity = EXCLUDED.quantity, unit = EXCLUDED.unit`,
+        [recipe.id, pending.requestId, pending.requestedName, pending.quantity, pending.unit]
+      );
+    }
+
+    await pool.query('COMMIT');
+
+    recipe.pending_ingredients = pendingIngredientLinks.map(p => p.requestedName);
     res.status(201).json(recipe);
   } catch (error) {
+    try {
+      const pool = req.app.locals.pool;
+      await pool.query('ROLLBACK');
+    } catch (_) {
+      // ignore
+    }
     console.error('Error creating recipe:', error);
     res.status(500).json({ error: 'Failed to create recipe' });
   }

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
+import IngredientSearchBar from '../components/Common/IngredientSearchBar';
+import { resolveImageUrl } from '../utils/resolveImageUrl';
 
 // --- MOCK DATA ---
 const mockIngredients = ['Beef', 'Cheese', 'Eggs', 'Potatoes', 'Veggies'];
@@ -90,7 +92,7 @@ const IngredientPill = React.memo(({ ingredient, mode, onToggleMode }) => {
 const RecipeCard = React.memo(({ recipe, onClick }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
-  const imageUrl = recipe.image_url || recipe.imageUrl || 'https://placehold.co/600x400/87CEEB/ffffff?text=Recipe';
+  const imageUrl = resolveImageUrl(recipe.image_url) || recipe.imageUrl || 'https://placehold.co/600x400/87CEEB/ffffff?text=Recipe';
   const likeCount = recipe.like_count || recipe.likes || 0;
   
   return (
@@ -146,7 +148,6 @@ const HomePage = ({ theme, toggleTheme }) => {
   const navigate = useNavigate();
   const [activeIngredients, setActiveIngredients] = useState(new Map());
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [searchMode, setSearchMode] = useState('ingredients'); // 'ingredients' or 'name'
   
   // State for recipe sections
@@ -251,23 +252,9 @@ const HomePage = ({ theme, toggleTheme }) => {
       return newIngredients;
     });
     setSearchTerm('');
-    setSelectedSuggestionIndex(-1);
   }, []);
 
   const isIngredientActive = (ingredient) => activeIngredients.has(ingredient);
-
-  useEffect(() => {
-    setSelectedSuggestionIndex(-1);
-  }, [searchTerm]);
-
-  useEffect(() => {
-    if (selectedSuggestionIndex >= 0) {
-      const element = document.querySelector(`[data-suggestion-index="${selectedSuggestionIndex}"]`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    }
-  }, [selectedSuggestionIndex]);
 
   const handleSearch = () => {
     // Build search params
@@ -311,44 +298,12 @@ const HomePage = ({ theme, toggleTheme }) => {
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (searchMode === 'name') {
-      // Recipe name search mode - Enter should search directly
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        handleSearch();
-      } else if (e.key === 'Escape') {
-        setSearchTerm('');
-      }
-    } else {
-      // Ingredients search mode - existing logic
-      const suggestions = [
-        ...(searchTerm.trim().length > 0 && !isIngredientActive(searchTerm.trim()) ? [searchTerm.trim()] : []),
-        ...filteredSuggestions
-      ];
-
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setSelectedSuggestionIndex(prev => 
-          prev < suggestions.length - 1 ? prev + 1 : prev
-        );
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setSelectedSuggestionIndex(prev => prev > -1 ? prev - 1 : -1);
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        
-        if (selectedSuggestionIndex >= 0 && suggestions[selectedSuggestionIndex]) {
-          handleAddIngredient(suggestions[selectedSuggestionIndex]);
-        } else if (searchTerm.trim().length > 0) {
-          handleAddIngredient(searchTerm.trim());
-        } else if (activeIngredients.size > 0) {
-          handleSearch();
-        }
-      } else if (e.key === 'Escape') {
-        setSearchTerm('');
-        setSelectedSuggestionIndex(-1);
-      }
+  const handleNameKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSearch();
+    } else if (e.key === 'Escape') {
+      setSearchTerm('');
     }
   };
 
@@ -364,10 +319,6 @@ const HomePage = ({ theme, toggleTheme }) => {
     }
     return `text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 active:bg-gray-200 dark:active:bg-gray-600 ${baseClasses}`;
   };
-
-  const filteredSuggestions = allAutofillSuggestions.filter(item => 
-    item.toLowerCase().includes(searchTerm.toLowerCase()) && !isIngredientActive(item)
-  ).slice(0, 5);
 
   const mockNextIngredient = 'Basil';
   const showMockNextIngredient = !isIngredientActive(mockNextIngredient);
@@ -403,52 +354,80 @@ const HomePage = ({ theme, toggleTheme }) => {
         </div>
 
         {/* Search Bar */}
-        <div className="relative w-full sm:max-w-3xl sm:mx-auto shadow-xl rounded-lg sm:rounded-2xl bg-white dark:bg-gray-800 mb-6 sm:mb-8 border border-gray-200 dark:border-gray-700">
-          <div className="flex flex-col sm:flex-row sm:items-center p-2 gap-2">
-            <div className="flex items-center flex-1 min-w-0">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 text-gray-400 mx-2 sm:mx-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-
-              <div className="flex flex-wrap items-center flex-grow py-1 gap-2 min-w-0">
-                {searchMode === 'ingredients' && Array.from(activeIngredients).map(([ingredient, mode]) => (
-                  <IngredientPill 
-                    key={ingredient}
-                    ingredient={ingredient} 
-                    mode={mode} 
-                    onToggleMode={toggleIngredientMode}
-                  />
-                ))}
-                
-                <input 
-                  type="text" 
-                  id="recipe-search" 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="flex-grow min-w-[120px] py-2 bg-transparent text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none text-base sm:text-lg" 
-                  placeholder={searchMode === 'name' ? "e.g., Chicken Curry, Pasta..." : (activeIngredients.size === 0 ? "e.g., chicken, basil..." : "")}
+        <div className="w-full sm:max-w-3xl sm:mx-auto mb-6 sm:mb-8">
+          {searchMode === 'ingredients' ? (
+            <IngredientSearchBar
+              inputId="recipe-search"
+              className="shadow-xl rounded-lg sm:rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+              selectedValues={Array.from(activeIngredients.keys())}
+              chips={Array.from(activeIngredients).map(([ingredient, mode]) => (
+                <IngredientPill
+                  key={ingredient}
+                  ingredient={ingredient}
+                  mode={mode}
+                  onToggleMode={toggleIngredientMode}
                 />
+              ))}
+              inputValue={searchTerm}
+              setInputValue={setSearchTerm}
+              allSuggestions={allAutofillSuggestions}
+              onAdd={handleAddIngredient}
+              onEnterWhenEmpty={() => {
+                if (activeIngredients.size > 0) handleSearch();
+              }}
+              placeholder={activeIngredients.size === 0 ? 'e.g., chicken, basil...' : ''}
+              actions={
+                <>
+                  {showMockNextIngredient && !searchTerm ? (
+                    <button
+                      type="button"
+                      onClick={() => handleAddIngredient(mockNextIngredient)}
+                      className="hidden sm:flex items-center text-sm px-3 py-2 rounded-xl transition duration-150 border font-medium text-gray-500 dark:text-gray-400 border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 opacity-90 whitespace-nowrap flex-shrink-0"
+                    >
+                      <span className="mr-1 text-xs">Suggest: {mockNextIngredient}</span>
+                      <span className="font-bold text-base leading-none">+</span>
+                    </button>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={handleSearch}
+                    className="font-bold py-2 px-4 sm:px-6 rounded-xl transition duration-300 shadow-md flex-shrink-0 text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 w-full sm:w-auto"
+                  >
+                    Search
+                  </button>
+                </>
+              }
+            />
+          ) : (
+            <div className="relative w-full shadow-xl rounded-lg sm:rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-center p-2 gap-2">
+                <div className="flex items-center flex-1 min-w-0">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 text-gray-400 mx-2 sm:mx-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+
+                  <input
+                    type="text"
+                    id="recipe-search"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onKeyDown={handleNameKeyDown}
+                    className="flex-grow min-w-[120px] py-2 bg-transparent text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none text-base sm:text-lg"
+                    placeholder="e.g., Chicken Curry, Pasta..."
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSearch}
+                  className="font-bold py-2 px-4 sm:px-6 rounded-xl transition duration-300 shadow-md flex-shrink-0 text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 w-full sm:w-auto"
+                >
+                  Search
+                </button>
               </div>
             </div>
-            
-            {searchMode === 'ingredients' && showMockNextIngredient && !searchTerm && (
-              <button
-                onClick={() => handleAddIngredient(mockNextIngredient)}
-                className="hidden sm:flex items-center text-sm px-3 py-2 rounded-xl transition duration-150 border font-medium text-gray-500 dark:text-gray-400 border-dashed border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 opacity-90 whitespace-nowrap flex-shrink-0"
-              >
-                <span className="mr-1 text-xs">Suggest: {mockNextIngredient}</span>
-                <span className="font-bold text-base leading-none">+</span>
-              </button>
-            )}
-            
-            <button 
-              onClick={handleSearch}
-              className="font-bold py-2 px-4 sm:px-6 rounded-xl transition duration-300 shadow-md flex-shrink-0 text-white bg-orange-600 hover:bg-orange-700 active:bg-orange-800 w-full sm:w-auto"
-            >
-              Search
-            </button>
-          </div>
+          )}
           
           {/* Subtle AI Option */}
           {(activeIngredients.size > 0 || (searchMode === 'name' && searchTerm.trim())) && (
@@ -470,7 +449,7 @@ const HomePage = ({ theme, toggleTheme }) => {
                       params.append('ingredients', includedIngredients.join(','));
                     }
                   }
-                  params.append('generateAI', 'true');
+                  params.append('ai', '1');
                   navigate(`/search?${params.toString()}`);
                 }}
                 className="inline-flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition"
@@ -482,57 +461,6 @@ const HomePage = ({ theme, toggleTheme }) => {
               </button>
             </div>
           )}
-          
-          {/* Autofill Dropdown */}
-          {searchMode === 'ingredients' && searchTerm.length > 0 && (() => {
-            const suggestions = [
-              ...(searchTerm.trim().length > 0 && !isIngredientActive(searchTerm.trim()) ? [{ value: searchTerm.trim(), isCustom: true }] : []),
-              ...filteredSuggestions.map(item => ({ value: item, isCustom: false }))
-            ];
-
-            return (
-              <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-700 z-20 max-h-[60vh] overflow-y-auto">
-                <div className="p-3">
-                  {suggestions.map((suggestion, index) => {
-                    const isSelected = index === selectedSuggestionIndex;
-                    const isCustom = suggestion.isCustom;
-                    
-                    return (
-                      <button
-                        key={`${suggestion.value}-${index}`}
-                        data-suggestion-index={index}
-                        onClick={() => handleAddIngredient(suggestion.value)}
-                        className={`w-full flex items-center justify-between text-base px-4 py-3 rounded-xl transition duration-150 font-medium mb-2 last:mb-0 ${
-                          isCustom
-                            ? `bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white shadow-md ${isSelected ? 'ring-2 ring-blue-300 ring-offset-2 dark:ring-offset-gray-800' : ''}`
-                            : `bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 active:bg-gray-200 dark:active:bg-gray-500 ${isSelected ? 'ring-2 ring-green-500 ring-offset-2 dark:ring-offset-gray-800 bg-gray-100 dark:bg-gray-600' : ''}`
-                        }`}
-                      >
-                        <span className="truncate">
-                          {isCustom ? `Add "${suggestion.value}"` : suggestion.value}
-                        </span>
-                        <span className={`font-bold text-lg leading-none ml-2 ${isCustom ? '' : 'text-green-600 dark:text-green-400'}`}>
-                          +
-                        </span>
-                      </button>
-                    );
-                  })}
-
-                  {suggestions.length === 0 && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-2">
-                      Press Enter to add "{searchTerm.trim()}"
-                    </p>
-                  )}
-
-                  {suggestions.length > 0 && (
-                    <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-3 pt-2 border-t border-gray-200 dark:border-gray-700">
-                      Use ↑↓ arrows to navigate, Enter to select, Esc to close
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
         </div>
         
         {/* Quick Toggle Buttons */}
@@ -565,7 +493,7 @@ const HomePage = ({ theme, toggleTheme }) => {
                     <div className="absolute inset-0 bg-gray-300 dark:bg-gray-700 animate-pulse rounded-xl sm:rounded-2xl" style={{ aspectRatio: '4/3' }} />
                   )}
                   <img 
-                    src={featuredRecipe.image_url || 'https://placehold.co/800x600/FF6347/ffffff?text=Featured+Recipe'} 
+                    src={resolveImageUrl(featuredRecipe.image_url) || 'https://placehold.co/800x600/FF6347/ffffff?text=Featured+Recipe'} 
                     alt={featuredRecipe.title} 
                     className={`w-full h-auto object-cover rounded-xl sm:rounded-2xl shadow-xl transition-opacity duration-300 ${featuredImageLoaded ? 'opacity-100' : 'opacity-0'}`}
                     onLoad={() => setFeaturedImageLoaded(true)}

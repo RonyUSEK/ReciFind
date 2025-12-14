@@ -18,6 +18,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Serve locally uploaded media (dev/prod)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Database connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://user:pass@postgres:5432/mydb',
@@ -61,6 +64,37 @@ async function initializeDatabaseIfNeeded() {
       );
     `);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_ai_daily_usage_day ON ai_daily_usage(day)');
+
+    // Ensure ingredient request moderation tables exist (for incremental upgrades)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ingredient_requests (
+        id SERIAL PRIMARY KEY,
+        requested_name VARCHAR(100) NOT NULL,
+        normalized_name VARCHAR(100) UNIQUE NOT NULL,
+        requested_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+        reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        admin_notes TEXT,
+        reviewed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_ingredient_requests_status ON ingredient_requests(status)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_ingredient_requests_normalized_name ON ingredient_requests(normalized_name)');
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS recipe_pending_ingredients (
+        id SERIAL PRIMARY KEY,
+        recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+        ingredient_request_id INTEGER NOT NULL REFERENCES ingredient_requests(id) ON DELETE CASCADE,
+        requested_name VARCHAR(100) NOT NULL,
+        quantity VARCHAR(50),
+        unit VARCHAR(50),
+        UNIQUE(recipe_id, ingredient_request_id)
+      );
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recipe_pending_ingredients_recipe_id ON recipe_pending_ingredients(recipe_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recipe_pending_ingredients_request_id ON recipe_pending_ingredients(ingredient_request_id)');
 
     if (process.env.NODE_ENV !== 'test') {
       console.log('✓ Database already initialized');
@@ -110,6 +144,10 @@ app.use('/api/auth', authRoutes);
 // Recipe routes
 const recipeRoutes = require('./src/routes/recipes');
 app.use('/api/recipes', recipeRoutes);
+
+// Upload routes (local media storage)
+const uploadRoutes = require('./src/routes/uploads');
+app.use('/api/uploads', uploadRoutes);
 
 // Admin routes
 const adminRoutes = require('./src/routes/admin');

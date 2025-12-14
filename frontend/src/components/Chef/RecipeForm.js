@@ -22,6 +22,8 @@ function RecipeForm({ isEdit = false }) {
     image_url: '',
   });
 
+  const [imageFile, setImageFile] = useState(null);
+
   const [ingredients, setIngredients] = useState([
     { name: '', quantity: '', unit: '' }
   ]);
@@ -53,6 +55,8 @@ function RecipeForm({ isEdit = false }) {
         image_url: recipe.image_url || '',
       });
 
+      setImageFile(null);
+
       if (recipe.ingredients && recipe.ingredients.length > 0) {
         setIngredients(recipe.ingredients);
       }
@@ -73,6 +77,17 @@ function RecipeForm({ isEdit = false }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const uploadRecipeImage = async (file) => {
+    const data = new FormData();
+    data.append('image', file);
+
+    const response = await api.post('/api/uploads/recipes', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    return response?.data?.image_url;
   };
 
   const handleInputChange = (e) => {
@@ -131,12 +146,27 @@ function RecipeForm({ isEdit = false }) {
       return;
     }
 
+    if (!isEdit && !imageFile) {
+      setError('Recipe image is required');
+      return;
+    }
+
     const filteredIngredients = ingredients.filter(
       ing => ing.name.trim() !== ''
     );
 
     try {
       setLoading(true);
+
+      let image_url = formData.image_url;
+      if (imageFile) {
+        const uploadedUrl = await uploadRecipeImage(imageFile);
+        if (!uploadedUrl) {
+          setError('Failed to upload image');
+          return;
+        }
+        image_url = uploadedUrl;
+      }
 
       const payload = {
         ...formData,
@@ -146,14 +176,24 @@ function RecipeForm({ isEdit = false }) {
         cook_time: formData.cook_time ? parseInt(formData.cook_time) : null,
         servings: formData.servings ? parseInt(formData.servings) : null,
         calories: formData.calories ? parseInt(formData.calories) : null,
+        image_url,
       };
 
       if (isEdit) {
         await api.put(`/api/recipes/${id}`, payload);
         setSuccess('Recipe updated successfully!');
       } else {
-        await api.post('/api/recipes', payload);
-        setSuccess('Recipe created successfully! Awaiting admin approval.');
+        const res = await api.post('/api/recipes', payload);
+        const pending = res?.data?.pending_ingredients;
+        const status = res?.data?.status;
+
+        if (Array.isArray(pending) && pending.length > 0) {
+          setSuccess(`Recipe submitted as pending. Waiting for admin to add ingredients: ${pending.join(', ')}.`);
+        } else if (status === 'approved') {
+          setSuccess('Recipe published successfully!');
+        } else {
+          setSuccess('Recipe created successfully! Awaiting admin approval.');
+        }
       }
 
       setTimeout(() => {
@@ -237,16 +277,20 @@ function RecipeForm({ isEdit = false }) {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Image URL
+                  Recipe Image {isEdit ? '' : '*'}
                 </label>
                 <input
-                  type="url"
-                  name="image_url"
-                  value={formData.image_url}
-                  onChange={handleInputChange}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                  required={!isEdit}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
-                  placeholder="https://example.com/image.jpg"
                 />
+                {isEdit && formData.image_url && (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    Current image will be kept unless you upload a new one.
+                  </p>
+                )}
               </div>
             </div>
           </div>

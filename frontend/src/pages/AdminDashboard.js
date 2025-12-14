@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { resolveImageUrl } from '../utils/resolveImageUrl';
 import Toast from '../components/Common/Toast';
 import ConfirmModal from '../components/Common/ConfirmModal';
 import useToast from '../hooks/useToast';
@@ -10,18 +11,23 @@ import AIMetrics from '../components/Admin/AIMetrics';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const [mainTab, setMainTab] = useState('applications'); // applications, recipes, users, reports, ai-metrics
+  const [mainTab, setMainTab] = useState('applications'); // applications, recipes, ingredients, users, reports, ai-metrics
   const [activeTab, setActiveTab] = useState('pending'); // For sub-tabs (pending, all)
   const [applications, setApplications] = useState([]);
   const [recipes, setRecipes] = useState([]);
+  const [ingredientRequests, setIngredientRequests] = useState([]);
+  const [ingredientRequestStatus, setIngredientRequestStatus] = useState('pending');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [selectedRecipe, setSelectedRecipe] = useState(null);
+  const [selectedIngredientRequest, setSelectedIngredientRequest] = useState(null);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showRecipeRejectModal, setShowRecipeRejectModal] = useState(false);
+  const [showIngredientRejectModal, setShowIngredientRejectModal] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [ingredientFeedback, setIngredientFeedback] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
   // Use custom hooks for toast and confirm
@@ -79,16 +85,35 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchIngredientRequests = async (status = 'pending') => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await api.get('/api/admin/ingredient-requests', {
+        params: { status }
+      });
+      setIngredientRequests(response.data.requests || []);
+    } catch (err) {
+      console.error('Error fetching ingredient requests:', err);
+      setError(err.response?.data?.error || 'Failed to load ingredient requests');
+      setIngredientRequests([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (mainTab === 'applications') {
       const status = activeTab === 'all' ? null : activeTab;
       fetchApplications(status);
     } else if (mainTab === 'recipes') {
       fetchRecipes();
+    } else if (mainTab === 'ingredients') {
+      fetchIngredientRequests(ingredientRequestStatus);
     } else if (mainTab === 'users') {
       fetchUsers();
     }
-  }, [mainTab, activeTab]);
+  }, [mainTab, activeTab, ingredientRequestStatus]);
 
   const handleApprove = async (applicationId) => {
     showConfirm({
@@ -215,6 +240,62 @@ const AdminDashboard = () => {
     setFeedback('');
   };
 
+  // Ingredient request moderation handlers
+  const handleApproveIngredientRequest = async (requestId) => {
+    showConfirm({
+      message: 'Approve this ingredient request and add it to the ingredient list?',
+      confirmStyle: 'success',
+      onConfirm: async () => {
+        try {
+          setActionLoading(true);
+          await api.post(`/api/admin/ingredient-requests/${requestId}/approve`, {});
+          await fetchIngredientRequests(ingredientRequestStatus);
+          showToast('Ingredient request approved and ingredient added.', 'success');
+        } catch (err) {
+          console.error('Error approving ingredient request:', err);
+          showToast(err.response?.data?.error || 'Failed to approve ingredient request', 'error');
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    });
+  };
+
+  const handleRejectIngredientRequest = async () => {
+    if (!selectedIngredientRequest) return;
+
+    try {
+      setActionLoading(true);
+      await api.post(`/api/admin/ingredient-requests/${selectedIngredientRequest.id}/reject`, {
+        feedback: ingredientFeedback.trim() || null,
+      });
+
+      setShowIngredientRejectModal(false);
+      setSelectedIngredientRequest(null);
+      setIngredientFeedback('');
+
+      await fetchIngredientRequests(ingredientRequestStatus);
+      showToast('Ingredient request rejected.', 'success');
+    } catch (err) {
+      console.error('Error rejecting ingredient request:', err);
+      showToast(err.response?.data?.error || 'Failed to reject ingredient request', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const openIngredientRejectModal = (request) => {
+    setSelectedIngredientRequest(request);
+    setShowIngredientRejectModal(true);
+    setIngredientFeedback('');
+  };
+
+  const closeIngredientRejectModal = () => {
+    setShowIngredientRejectModal(false);
+    setSelectedIngredientRequest(null);
+    setIngredientFeedback('');
+  };
+
   // User management handlers
   const handleChangeUserRole = async (userId, newRole, userName) => {
     showConfirm({
@@ -289,6 +370,16 @@ const AdminDashboard = () => {
               }`}
             >
               User Management
+            </button>
+            <button
+              onClick={() => setMainTab('ingredients')}
+              className={`pb-2 px-3 sm:px-4 font-semibold transition-colors whitespace-nowrap ${
+                mainTab === 'ingredients'
+                  ? 'border-b-2 border-green-600 text-green-600 dark:text-green-400 -mb-[2px]'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+              }`}
+            >
+              Ingredient Requests
             </button>
             <button
               onClick={() => setMainTab('reports')}
@@ -574,6 +665,18 @@ const AdminDashboard = () => {
                       <p className="text-gray-800 dark:text-gray-200">{recipe.description}</p>
                     </div>
 
+                    {Array.isArray(recipe.pending_ingredients) && recipe.pending_ingredients.length > 0 && (
+                      <div className="mb-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 text-yellow-900 dark:text-yellow-100 px-4 py-3 rounded">
+                        <p className="text-sm font-semibold mb-1">Pending ingredients must be approved first</p>
+                        <p className="text-sm">
+                          {recipe.pending_ingredients.join(', ')}
+                        </p>
+                        <p className="text-xs mt-1 text-yellow-800 dark:text-yellow-200">
+                          Approve/reject these in the Ingredient Requests tab before approving this recipe.
+                        </p>
+                      </div>
+                    )}
+
                     <div className="grid md:grid-cols-2 gap-4 mb-4">
                       <div>
                         <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Prep Time</p>
@@ -596,7 +699,7 @@ const AdminDashboard = () => {
                     {recipe.image_url && (
                       <div className="mb-4">
                         <img 
-                          src={recipe.image_url} 
+                          src={resolveImageUrl(recipe.image_url)} 
                           alt={recipe.title}
                           className="w-full max-w-md h-48 object-cover rounded-lg"
                           onError={(e) => { e.target.style.display = 'none'; }}
@@ -607,7 +710,7 @@ const AdminDashboard = () => {
                     <div className="mt-6 flex gap-3">
                       <button
                         onClick={() => handleApproveRecipe(recipe.id)}
-                        disabled={actionLoading}
+                        disabled={actionLoading || (Array.isArray(recipe.pending_ingredients) && recipe.pending_ingredients.length > 0)}
                         className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
                       >
                         Approve Recipe
@@ -620,6 +723,105 @@ const AdminDashboard = () => {
                         Reject Recipe
                       </button>
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* INGREDIENT REQUESTS TAB */}
+        {mainTab === 'ingredients' && (
+          <>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Ingredient Requests</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Approve to add an ingredient to the global list, or reject with feedback.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                <select
+                  value={ingredientRequestStatus}
+                  onChange={(e) => setIngredientRequestStatus(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+                <button
+                  onClick={() => fetchIngredientRequests(ingredientRequestStatus)}
+                  disabled={loading}
+                  className="bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded-lg transition duration-200"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-gray-300 border-t-green-600"></div>
+                <p className="mt-4 text-gray-600 dark:text-gray-400">Loading ingredient requests...</p>
+              </div>
+            ) : ingredientRequests.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-gray-600 dark:text-gray-400">No ingredient requests found.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {ingredientRequests.map((req) => (
+                  <div
+                    key={req.id}
+                    className="bg-gray-50 dark:bg-gray-700 rounded-lg p-5 border border-gray-200 dark:border-gray-600"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{req.requested_name}</h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          Requested by: {req.requested_by_name || 'Unknown'}{req.requested_by_email ? ` (${req.requested_by_email})` : ''}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                          Submitted: {req.created_at ? new Date(req.created_at).toLocaleDateString() : 'N/A'}
+                        </p>
+                        {req.status !== 'pending' && (
+                          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                            Reviewed by: {req.reviewed_by_name || 'N/A'}{req.reviewed_at ? ` on ${new Date(req.reviewed_at).toLocaleDateString()}` : ''}
+                          </p>
+                        )}
+                        {req.admin_notes && (
+                          <div className="mt-2">
+                            <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Admin Notes</p>
+                            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{req.admin_notes}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {getStatusBadge(req.status)}
+                      </div>
+                    </div>
+
+                    {req.status === 'pending' && (
+                      <div className="mt-4 flex gap-3">
+                        <button
+                          onClick={() => handleApproveIngredientRequest(req.id)}
+                          disabled={actionLoading}
+                          className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          onClick={() => openIngredientRejectModal(req)}
+                          disabled={actionLoading}
+                          className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-semibold py-2 px-6 rounded-lg transition duration-200"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -793,6 +995,46 @@ const AdminDashboard = () => {
               </button>
               <button
                 onClick={closeRecipeRejectModal}
+                disabled={actionLoading}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded-lg transition duration-200"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ingredient Request Reject Modal */}
+      {showIngredientRejectModal && selectedIngredientRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6">
+            <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-4">
+              Reject Ingredient Request
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              Ingredient: <span className="font-semibold text-gray-900 dark:text-gray-100">{selectedIngredientRequest.requested_name}</span>
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Optional: provide feedback (e.g., use an existing ingredient name).
+            </p>
+            <textarea
+              value={ingredientFeedback}
+              onChange={(e) => setIngredientFeedback(e.target.value)}
+              placeholder="Feedback (optional)..."
+              rows="5"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            />
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={handleRejectIngredientRequest}
+                disabled={actionLoading}
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
+              >
+                {actionLoading ? 'Rejecting...' : 'Reject'}
+              </button>
+              <button
+                onClick={closeIngredientRejectModal}
                 disabled={actionLoading}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded-lg transition duration-200"
               >

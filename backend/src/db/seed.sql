@@ -3,7 +3,7 @@
 -- Created: November 19, 2025
 
 -- Clear existing data (in correct order due to foreign keys)
-TRUNCATE TABLE collection_recipes, recipe_collections, chat_sessions, reports, comments, likes, favorites, recipe_approvals, recipe_ingredients, ingredients, recipes, chef_applications, users RESTART IDENTITY CASCADE;
+TRUNCATE TABLE collection_recipes, recipe_collections, chat_sessions, reports, comments, likes, favorites, recipe_approvals, recipe_pending_ingredients, ingredient_requests, recipe_ingredients, ingredients, recipes, chef_applications, users RESTART IDENTITY CASCADE;
 
 -- ============================================
 -- USERS (3 per role = 9 total)

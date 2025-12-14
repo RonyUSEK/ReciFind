@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import ReportButton from '../components/Report/ReportButton';
+import { resolveImageUrl } from '../utils/resolveImageUrl';
 
 const RecipeDetailPage = () => {
   const { id } = useParams();
@@ -92,18 +93,18 @@ const RecipeDetailPage = () => {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-4 sm:py-8">
       <div className="w-full px-3 sm:px-4 lg:max-w-6xl lg:mx-auto">
         {/* Breadcrumb */}
-        <div className="mb-4 flex items-center text-sm text-gray-600 dark:text-gray-400">
+        <div className="mb-3 sm:mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600 dark:text-gray-400">
           <button onClick={() => navigate('/')} className="hover:text-green-600 dark:hover:text-green-400">
             Home
           </button>
-          <span className="mx-2">/</span>
+          <span>/</span>
           <span className="text-gray-900 dark:text-gray-100">{recipe.title}</span>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
           {/* Recipe Header */}
-          <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-            <h1 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-gray-100 mb-3">
+          <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-gray-100 mb-3">
               {recipe.title}
             </h1>
             
@@ -142,8 +143,8 @@ const RecipeDetailPage = () => {
             </div>
 
             {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
-              <button className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-3 mb-4">
+              <button className="w-full sm:w-auto justify-center flex items-center gap-2 px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 
                                text-white rounded-lg transition-colors text-sm sm:text-base">
                 <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
@@ -151,7 +152,7 @@ const RecipeDetailPage = () => {
                 </svg>
                 Save
               </button>
-              <button className="flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 
+              <button className="w-full sm:w-auto justify-center flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 
                                hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 
                                rounded-lg transition-colors text-sm sm:text-base">
                 <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -167,7 +168,7 @@ const RecipeDetailPage = () => {
                 contentId={recipe.id}
                 contentTitle={recipe.title}
                 variant="full"
-                className="sm:ml-auto"
+                className="w-full sm:w-auto sm:ml-auto"
               />
             </div>
 
@@ -218,14 +219,14 @@ const RecipeDetailPage = () => {
 
           {/* Recipe Image */}
           {recipe.image_url && (
-            <div className="relative w-full h-96 bg-gray-300 dark:bg-gray-700">
+            <div className="relative w-full h-64 sm:h-80 md:h-96 bg-gray-300 dark:bg-gray-700">
               {!imageLoaded && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading image...</div>
                 </div>
               )}
               <img
-                src={recipe.image_url}
+                src={resolveImageUrl(recipe.image_url)}
                 alt={recipe.title}
                 className={`w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
                 onLoad={() => setImageLoaded(true)}

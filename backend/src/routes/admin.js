@@ -3,6 +3,8 @@ const router = express.Router();
 const { authenticate, requireRole } = require('../middleware/auth');
 const { AI_DAILY_LIMIT } = require('../middleware/rateLimiter');
 
+const normalizeIngredientName = (value) => String(value || '').trim().toLowerCase();
+
 /**
  * GET /api/admin/chef-applications
  * Get all chef applications (pending, approved, rejected)
@@ -167,10 +169,190 @@ router.get('/recipes/pending', authenticate, requireRole(['admin']), async (req,
       ORDER BY r.created_at ASC
     `);
 
-    res.json({ recipes: result.rows });
+    const recipeIds = result.rows.map(r => r.id);
+    let pendingByRecipe = new Map();
+    if (recipeIds.length > 0) {
+      const pending = await pool.query(
+        `SELECT rpi.recipe_id, array_agg(ir.requested_name ORDER BY ir.created_at) AS pending_ingredients
+         FROM recipe_pending_ingredients rpi
+         JOIN ingredient_requests ir ON rpi.ingredient_request_id = ir.id
+         WHERE rpi.recipe_id = ANY($1::int[])
+         GROUP BY rpi.recipe_id`,
+        [recipeIds]
+      );
+      pendingByRecipe = new Map(pending.rows.map(row => [row.recipe_id, row.pending_ingredients || []]));
+    }
+
+    const enriched = result.rows.map(r => ({
+      ...r,
+      pending_ingredients: pendingByRecipe.get(r.id) || [],
+      pending_ingredient_count: (pendingByRecipe.get(r.id) || []).length,
+    }));
+
+    res.json({ recipes: enriched });
   } catch (error) {
     console.error('Error fetching pending recipes:', error);
     res.status(500).json({ error: 'Failed to fetch pending recipes' });
+  }
+});
+
+/**
+ * GET /api/admin/ingredient-requests
+ * List ingredient requests for moderation
+ */
+router.get('/ingredient-requests', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { status = 'pending' } = req.query;
+
+    const params = [];
+    let where = '';
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      where = 'WHERE ir.status = $1';
+      params.push(status);
+    }
+
+    const result = await pool.query(
+      `SELECT ir.*, u.name AS requested_by_name, u.email AS requested_by_email, a.name AS reviewed_by_name
+       FROM ingredient_requests ir
+       LEFT JOIN users u ON ir.requested_by = u.id
+       LEFT JOIN users a ON ir.reviewed_by = a.id
+       ${where}
+       ORDER BY ir.created_at DESC`,
+      params
+    );
+
+    res.json({ requests: result.rows });
+  } catch (error) {
+    console.error('Error fetching ingredient requests:', error);
+    res.status(500).json({ error: 'Failed to fetch ingredient requests' });
+  }
+});
+
+/**
+ * POST /api/admin/ingredient-requests/:id/approve
+ * Approve an ingredient request and link it into any waiting recipes.
+ */
+router.post('/ingredient-requests/:id/approve', authenticate, requireRole(['admin']), async (req, res) => {
+  const pool = req.app.locals.pool;
+  const adminId = req.user.userId;
+
+  try {
+    const { id } = req.params;
+    const { name, category } = req.body || {};
+
+    await pool.query('BEGIN');
+
+    const reqResult = await pool.query('SELECT * FROM ingredient_requests WHERE id = $1', [id]);
+    if (reqResult.rows.length === 0) {
+      await pool.query('ROLLBACK');
+      return res.status(404).json({ error: 'Ingredient request not found' });
+    }
+
+    const request = reqResult.rows[0];
+    if (request.status !== 'pending') {
+      await pool.query('ROLLBACK');
+      return res.status(400).json({ error: `Ingredient request already ${request.status}` });
+    }
+
+    const canonicalName = String(name || request.requested_name).trim();
+    const normalized = normalizeIngredientName(canonicalName);
+    if (!canonicalName || !normalized) {
+      await pool.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ingredient name is required' });
+    }
+
+    // Create ingredient if missing
+    const ingredientUpsert = await pool.query(
+      `WITH ins AS (
+         INSERT INTO ingredients (name, category)
+         VALUES ($1, $2)
+         ON CONFLICT (name) DO NOTHING
+         RETURNING id
+       )
+       SELECT id FROM ins
+       UNION ALL
+       SELECT id FROM ingredients WHERE LOWER(name) = $3
+       LIMIT 1`,
+      [canonicalName, category || null, normalized]
+    );
+
+    const ingredientId = ingredientUpsert.rows[0]?.id;
+    if (!ingredientId) {
+      await pool.query('ROLLBACK');
+      return res.status(500).json({ error: 'Failed to create ingredient' });
+    }
+
+    // Mark request approved
+    await pool.query(
+      `UPDATE ingredient_requests
+       SET status = 'approved', reviewed_by = $1, reviewed_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [adminId, id]
+    );
+
+    // Link into any waiting recipes
+    const pendingLinks = await pool.query(
+      `SELECT recipe_id, quantity, unit
+       FROM recipe_pending_ingredients
+       WHERE ingredient_request_id = $1`,
+      [id]
+    );
+
+    for (const row of pendingLinks.rows) {
+      await pool.query(
+        `INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (recipe_id, ingredient_id)
+         DO UPDATE SET quantity = EXCLUDED.quantity, unit = EXCLUDED.unit`,
+        [row.recipe_id, ingredientId, row.quantity || '', row.unit || '']
+      );
+    }
+
+    await pool.query('DELETE FROM recipe_pending_ingredients WHERE ingredient_request_id = $1', [id]);
+
+    await pool.query('COMMIT');
+
+    res.json({ message: 'Ingredient request approved', ingredient_id: ingredientId });
+  } catch (error) {
+    try { await pool.query('ROLLBACK'); } catch (_) {}
+    console.error('Error approving ingredient request:', error);
+    res.status(500).json({ error: 'Failed to approve ingredient request' });
+  }
+});
+
+/**
+ * POST /api/admin/ingredient-requests/:id/reject
+ * Reject an ingredient request.
+ */
+router.post('/ingredient-requests/:id/reject', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const adminId = req.user.userId;
+    const { id } = req.params;
+    const { feedback } = req.body || {};
+
+    const reqResult = await pool.query('SELECT * FROM ingredient_requests WHERE id = $1', [id]);
+    if (reqResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Ingredient request not found' });
+    }
+
+    const request = reqResult.rows[0];
+    if (request.status !== 'pending') {
+      return res.status(400).json({ error: `Ingredient request already ${request.status}` });
+    }
+
+    await pool.query(
+      `UPDATE ingredient_requests
+       SET status = 'rejected', reviewed_by = $1, reviewed_at = CURRENT_TIMESTAMP, admin_notes = $2
+       WHERE id = $3`,
+      [adminId, feedback || null, id]
+    );
+
+    res.json({ message: 'Ingredient request rejected' });
+  } catch (error) {
+    console.error('Error rejecting ingredient request:', error);
+    res.status(500).json({ error: 'Failed to reject ingredient request' });
   }
 });
 
@@ -183,6 +365,17 @@ router.post('/recipes/:id/approve', authenticate, requireRole(['admin']), async 
     const pool = req.app.locals.pool;
     const { id } = req.params;
     const adminId = req.user.userId;
+
+    const pendingIng = await pool.query(
+      'SELECT COUNT(*)::int AS cnt FROM recipe_pending_ingredients WHERE recipe_id = $1',
+      [id]
+    );
+
+    if ((pendingIng.rows[0]?.cnt || 0) > 0) {
+      return res.status(400).json({
+        error: 'Recipe has pending ingredient requests. Approve/reject the ingredients first.'
+      });
+    }
 
     // Get recipe
     const recipeResult = await pool.query(
