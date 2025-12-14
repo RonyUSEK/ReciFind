@@ -26,6 +26,8 @@ const IngredientSearchBar = ({
   className = '',
   inputId,
   disabled = false,
+  onRequest,
+  requestLabel = 'Request admin to add',
   helpText = 'Use ↑↓ to navigate, Enter to select, Esc to close',
   maxSuggestions = 8,
   showCustomAddWhenNoMatch = true,
@@ -40,9 +42,7 @@ const IngredientSearchBar = ({
 
   useEffect(() => {
     return () => {
-      if (blurTimerRef.current) {
-        clearTimeout(blurTimerRef.current);
-      }
+      if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
     };
   }, []);
 
@@ -61,7 +61,6 @@ const IngredientSearchBar = ({
       .slice(0, maxSuggestions);
   }, [allSuggestions, maxSuggestions, query, selectedSet]);
 
-  // PC-friendly: only show a dedicated "Add \"...\"" option when there are *no* matches.
   const showCustomAdd =
     showCustomAddWhenNoMatch &&
     isFocused &&
@@ -75,13 +74,18 @@ const IngredientSearchBar = ({
       return filteredSuggestions.map((s) => ({ type: 'suggestion', value: s }));
     }
     if (showCustomAdd) {
-      return [{ type: 'custom', value: String(inputValue || '').trim() }];
+      const value = String(inputValue || '').trim();
+      const base = [{ type: 'custom', value }];
+      if (typeof onRequest === 'function') {
+        base.push({ type: 'request', value });
+      }
+      return base;
     }
     return [];
-  }, [filteredSuggestions, inputValue, isFocused, query, showCustomAdd]);
+  }, [filteredSuggestions, inputValue, isFocused, query, showCustomAdd, onRequest]);
 
-  const listboxId = inputId ? `${inputId}__listbox` : undefined;
-  const optionId = (idx) => (inputId ? `${inputId}__option_${idx}` : undefined);
+  const listboxId = `${inputId || 'ingredient-search'}__listbox`;
+  const optionId = (idx) => `${listboxId}__option-${idx}`;
 
   const closeList = () => {
     setActiveIndex(-1);
@@ -94,6 +98,24 @@ const IngredientSearchBar = ({
     onAdd?.(value);
     setInputValue('');
     setActiveIndex(-1);
+  };
+
+  const commitRequest = (raw) => {
+    const value = String(raw || '').trim();
+    if (!value) return;
+    if (typeof onRequest !== 'function') return;
+    onRequest(value);
+    setInputValue('');
+    setActiveIndex(-1);
+  };
+
+  const commitItem = (item) => {
+    if (!item) return;
+    if (item.type === 'request') {
+      commitRequest(item.value);
+    } else {
+      commitAdd(item.value);
+    }
   };
 
   const onKeyDown = (e) => {
@@ -125,18 +147,16 @@ const IngredientSearchBar = ({
       e.preventDefault();
 
       if (activeIndex >= 0 && items[activeIndex]) {
-        commitAdd(items[activeIndex].value);
+        commitItem(items[activeIndex]);
         return;
       }
 
-      // If there's an exact match, treat Enter as selecting it.
       const exact = filteredSuggestions.find((s) => normalize(s) === query);
       if (exact) {
         commitAdd(exact);
         return;
       }
 
-      // Only allow custom add when there are no matches.
       if (showCustomAdd) {
         commitAdd(String(inputValue || '').trim());
       }
@@ -146,7 +166,7 @@ const IngredientSearchBar = ({
     if (e.key === 'Tab') {
       if (activeIndex >= 0 && items[activeIndex]) {
         e.preventDefault();
-        commitAdd(items[activeIndex].value);
+        commitItem(items[activeIndex]);
       }
       return;
     }
@@ -154,7 +174,7 @@ const IngredientSearchBar = ({
     if (e.key === 'Escape') {
       e.preventDefault();
       setInputValue('');
-      setActiveIndex(-1);
+      closeList();
       return;
     }
   };
@@ -163,8 +183,19 @@ const IngredientSearchBar = ({
     <div className={`relative w-full ${className}`}>
       <div className="flex flex-col sm:flex-row sm:items-center p-2 gap-2">
         <div className="flex items-center flex-1 min-w-0">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 text-gray-400 mx-2 sm:mx-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-5 w-5 sm:h-6 sm:w-6 text-gray-400 mx-2 sm:mx-3 flex-shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
           </svg>
 
           <div className="flex flex-wrap items-center flex-grow py-1 gap-2 min-w-0">
@@ -209,6 +240,21 @@ const IngredientSearchBar = ({
             {items.map((item, idx) => {
               const isSelected = idx === activeIndex;
               const isCustom = item.type === 'custom';
+              const isRequest = item.type === 'request';
+
+              const cls = isCustom
+                ? `bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white shadow-md ${
+                    isSelected ? 'ring-2 ring-blue-300 ring-offset-2 dark:ring-offset-gray-800' : ''
+                  }`
+                : isRequest
+                  ? `bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white shadow-md ${
+                      isSelected ? 'ring-2 ring-purple-300 ring-offset-2 dark:ring-offset-gray-800' : ''
+                    }`
+                  : `bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 active:bg-gray-200 dark:active:bg-gray-500 ${
+                      isSelected
+                        ? 'ring-2 ring-green-500 ring-offset-2 dark:ring-offset-gray-800 bg-gray-100 dark:bg-gray-600'
+                        : ''
+                    }`;
 
               return (
                 <button
@@ -219,23 +265,23 @@ const IngredientSearchBar = ({
                   type="button"
                   onMouseEnter={() => setActiveIndex(idx)}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => commitAdd(item.value)}
-                  className={`w-full flex items-center justify-between text-base px-4 py-3 rounded-xl transition duration-150 font-medium mb-2 last:mb-0 ${
-                    isCustom
-                      ? `bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white shadow-md ${
-                          isSelected ? 'ring-2 ring-blue-300 ring-offset-2 dark:ring-offset-gray-800' : ''
-                        }`
-                      : `bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 active:bg-gray-200 dark:active:bg-gray-500 ${
-                          isSelected
-                            ? 'ring-2 ring-green-500 ring-offset-2 dark:ring-offset-gray-800 bg-gray-100 dark:bg-gray-600'
-                            : ''
-                        }`
-                  }`}
+                  onClick={() => commitItem(item)}
+                  className={`w-full flex items-center justify-between text-base px-4 py-3 rounded-xl transition duration-150 font-medium mb-2 last:mb-0 ${cls}`}
                 >
                   <span className="truncate">
-                    {isCustom ? `Add "${item.value}"` : item.value}
+                    {isCustom
+                      ? `Add "${item.value}"`
+                      : isRequest
+                        ? `${requestLabel} "${item.value}"`
+                        : item.value}
                   </span>
-                  <span className={`font-bold text-lg leading-none ml-2 ${isCustom ? '' : 'text-green-600 dark:text-green-400'}`}>+</span>
+                  <span
+                    className={`font-bold text-lg leading-none ml-2 ${
+                      isCustom || isRequest ? '' : 'text-green-600 dark:text-green-400'
+                    }`}
+                  >
+                    +
+                  </span>
                 </button>
               );
             })}
@@ -250,9 +296,7 @@ const IngredientSearchBar = ({
       )}
 
       {isFocused && query && items.length === 0 && showCustomAddWhenNoMatch ? (
-        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          No matches. Press Enter to add.
-        </div>
+        <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">No matches.</div>
       ) : null}
     </div>
   );

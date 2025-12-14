@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../utils/api';
+import DataTable from '../Common/DataTable';
 
 function AIMetrics() {
   const [metrics, setMetrics] = useState(null);
@@ -151,40 +152,39 @@ function AIMetrics() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700">
-                  <th className="py-2 pr-4">User</th>
-                  <th className="py-2 pr-4">Role</th>
-                  <th className="py-2 pr-4">Used</th>
-                  <th className="py-2 pr-4">Remaining</th>
-                  <th className="py-2 pr-4">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usage.users.map((u) => (
-                  <tr key={u.id} className="border-b border-gray-100 dark:border-gray-700">
-                    <td className="py-3 pr-4">
-                      <div className="font-medium text-gray-900 dark:text-white">{u.name}</div>
-                      <div className="text-gray-600 dark:text-gray-300">{u.email}</div>
-                    </td>
-                    <td className="py-3 pr-4 text-gray-900 dark:text-white">{u.role}</td>
-                    <td className="py-3 pr-4 text-gray-900 dark:text-white">{u.usedToday}</td>
-                    <td className="py-3 pr-4 text-gray-900 dark:text-white">{u.remainingToday}</td>
-                    <td className="py-3 pr-4">
-                      <button
-                        onClick={() => resetUserUsage(u.id)}
-                        className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 text-red-700 dark:text-red-200 rounded-md transition-colors"
-                      >
-                        Reset
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            data={usage.users}
+            searchPlaceholder="Search AI credits…"
+            initialPageSize={10}
+            columns={[
+              {
+                header: 'User',
+                accessorKey: 'name',
+                cell: ({ row }) => (
+                  <div>
+                    <div className="font-medium text-gray-900 dark:text-white">{row.original.name}</div>
+                    <div className="text-gray-600 dark:text-gray-300">{row.original.email}</div>
+                  </div>
+                ),
+              },
+              { header: 'Role', accessorKey: 'role' },
+              { header: 'Used', accessorKey: 'usedToday' },
+              { header: 'Remaining', accessorKey: 'remainingToday' },
+              {
+                header: 'Action',
+                id: 'action',
+                enableSorting: false,
+                cell: ({ row }) => (
+                  <button
+                    onClick={() => resetUserUsage(row.original.id)}
+                    className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30 text-red-700 dark:text-red-200 rounded-md transition-colors"
+                  >
+                    Reset
+                  </button>
+                ),
+              },
+            ]}
+          />
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
@@ -415,77 +415,70 @@ function AIMetrics() {
       {/* Generations List Tab */}
       {activeTab === 'generations' && (
         <div className="space-y-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead className="bg-gray-50 dark:bg-gray-900">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      User
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Ingredients
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Tokens
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Date
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {generations.map((gen) => (
-                    <tr key={gen.id}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {gen.user_name}
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {gen.user_email}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900 dark:text-white">
-                          {gen.ingredients.slice(0, 3).join(', ')}
-                          {gen.ingredients.length > 3 && ` +${gen.ingredients.length - 3}`}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900 dark:text-white">
-                          {gen.tokens_used || 'N/A'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {gen.success ? (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                            Success
-                          </span>
-                        ) : (
-                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
-                            Failed
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {new Date(gen.created_at).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <DataTable
+              title="All Generations (current page)"
+              data={generations}
+              searchPlaceholder="Search generations…"
+              disablePagination
+              columns={[
+                {
+                  header: 'User',
+                  accessorKey: 'user_name',
+                  cell: ({ row }) => (
+                    <div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-white">{row.original.user_name}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{row.original.user_email}</div>
+                    </div>
+                  ),
+                },
+                {
+                  header: 'Ingredients',
+                  id: 'ingredients',
+                  accessorFn: (row) => (Array.isArray(row.ingredients) ? row.ingredients.join(', ') : ''),
+                  cell: ({ row }) => {
+                    const list = Array.isArray(row.original.ingredients) ? row.original.ingredients : [];
+                    const preview = list.slice(0, 3).join(', ');
+                    return (
+                      <span className="text-sm text-gray-900 dark:text-white">
+                        {preview}
+                        {list.length > 3 ? ` +${list.length - 3}` : ''}
+                      </span>
+                    );
+                  },
+                },
+                { header: 'Tokens', accessorKey: 'tokens_used' },
+                {
+                  header: 'Status',
+                  accessorKey: 'success',
+                  cell: ({ row }) =>
+                    row.original.success ? (
+                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        Success
+                      </span>
+                    ) : (
+                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                        Failed
+                      </span>
+                    ),
+                },
+                {
+                  header: 'Date',
+                  accessorKey: 'created_at',
+                  cell: ({ row }) => (
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                      {new Date(row.original.created_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  ),
+                },
+              ]}
+            />
           </div>
 
           {/* Pagination */}

@@ -233,4 +233,47 @@ describe('Authentication API', () => {
       expect(response.body).toHaveProperty('error');
     });
   });
+
+  describe('POST /api/auth/refresh', () => {
+    it('should return a new token and current user from DB', async () => {
+      const jwt = require('jsonwebtoken');
+      const token = jwt.sign(
+        { userId: 1, role: 'user' },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      // Mock: Get user by ID (role may have changed in DB)
+      pool.query.mockResolvedValueOnce({
+        rows: [{
+          id: 1,
+          email: 'test@example.com',
+          name: 'Test User',
+          role: 'chef',
+          bio: null,
+          profile_image: null,
+          reputation_score: 0,
+          is_verified: false,
+          created_at: new Date(),
+        }],
+      });
+
+      const response = await request(app)
+        .post('/api/auth/refresh')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('token');
+      expect(response.body).toHaveProperty('user');
+      expect(response.body.user.role).toBe('chef');
+    });
+
+    it('should reject refresh without token', async () => {
+      const response = await request(app)
+        .post('/api/auth/refresh');
+
+      expect(response.status).toBe(401);
+      expect(response.body).toHaveProperty('error');
+    });
+  });
 });

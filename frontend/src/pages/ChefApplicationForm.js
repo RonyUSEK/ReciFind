@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 
 function ChefApplicationForm() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState('');
@@ -14,8 +16,8 @@ function ChefApplicationForm() {
     const checkExistingApplication = async () => {
       try {
         const response = await api.get('/api/auth/my-application');
-        if (response.data.application) {
-          const app = response.data.application;
+        const app = response.data?.application || response.data;
+        if (app && app.status) {
           if (app.status === 'pending') {
             // Redirect to application status page
             navigate('/application-status', { 
@@ -23,10 +25,14 @@ function ChefApplicationForm() {
             });
             return;
           } else if (app.status === 'approved') {
-            navigate('/dashboard', {
-              state: { message: 'You are already a chef!' }
-            });
-            return;
+            // If the user is currently a normal user, treat this as a demotion/stale state
+            // and allow them to submit a new application.
+            if (user?.role !== 'user') {
+              navigate('/dashboard', {
+                state: { message: 'You are already a chef!' }
+              });
+              return;
+            }
           }
           // If rejected, allow them to apply
         }
@@ -37,7 +43,7 @@ function ChefApplicationForm() {
       }
     };
     checkExistingApplication();
-  }, [navigate]);
+  }, [navigate, user?.role]);
 
   const [formData, setFormData] = useState({
     full_name: '',

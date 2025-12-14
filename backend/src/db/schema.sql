@@ -83,6 +83,7 @@ CREATE TABLE recipes (
     spice_level VARCHAR(20) CHECK (spice_level IN ('mild', 'medium', 'hot')),
     calories INTEGER,
     image_url VARCHAR(500),
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -94,6 +95,7 @@ CREATE INDEX idx_recipes_is_featured ON recipes(is_featured);
 CREATE INDEX idx_recipes_cuisine ON recipes(cuisine);
 CREATE INDEX idx_recipes_difficulty ON recipes(difficulty);
 CREATE INDEX idx_recipes_created_at ON recipes(created_at DESC);
+CREATE INDEX idx_recipes_deleted_at ON recipes(deleted_at);
 
 -- Ingredients table
 CREATE TABLE ingredients (
@@ -252,6 +254,41 @@ CREATE TABLE ai_daily_usage (
 
 CREATE INDEX idx_ai_daily_usage_day ON ai_daily_usage(day);
 
+-- Recipe collections (private + public playlists)
+CREATE TABLE recipe_collections (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        is_public BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+);
+
+CREATE INDEX idx_recipe_collections_user_id ON recipe_collections(user_id);
+CREATE INDEX idx_recipe_collections_is_public ON recipe_collections(is_public);
+
+-- Collection items can reference a DB recipe OR store a saved AI-generated recipe snapshot
+CREATE TABLE collection_recipes (
+        id SERIAL PRIMARY KEY,
+        collection_id INTEGER NOT NULL REFERENCES recipe_collections(id) ON DELETE CASCADE,
+        recipe_id INTEGER REFERENCES recipes(id) ON DELETE CASCADE,
+        ai_key VARCHAR(64),
+        ai_recipe JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CHECK (
+            (recipe_id IS NOT NULL AND ai_recipe IS NULL AND ai_key IS NULL)
+            OR
+            (recipe_id IS NULL AND ai_recipe IS NOT NULL AND ai_key IS NOT NULL)
+        )
+);
+
+CREATE INDEX idx_collection_recipes_collection_id ON collection_recipes(collection_id);
+CREATE INDEX idx_collection_recipes_recipe_id ON collection_recipes(recipe_id);
+CREATE UNIQUE INDEX uq_collection_recipes_recipe ON collection_recipes(collection_id, recipe_id) WHERE recipe_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_collection_recipes_ai ON collection_recipes(collection_id, ai_key) WHERE ai_key IS NOT NULL;
+
 -- AI Recipe Generation Tracking (for admin metrics)
 CREATE TABLE ai_generations (
     id SERIAL PRIMARY KEY,
@@ -268,33 +305,6 @@ CREATE TABLE ai_generations (
 CREATE INDEX idx_ai_generations_user_id ON ai_generations(user_id);
 CREATE INDEX idx_ai_generations_created_at ON ai_generations(created_at);
 CREATE INDEX idx_ai_generations_success ON ai_generations(success);
-
--- Recipe collections table (LOW PRIORITY - like Spotify playlists)
-CREATE TABLE recipe_collections (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    is_public BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create index for collections
-CREATE INDEX idx_recipe_collections_user_id ON recipe_collections(user_id);
-
--- Collection recipes junction table (LOW PRIORITY)
-CREATE TABLE collection_recipes (
-    id SERIAL PRIMARY KEY,
-    collection_id INTEGER NOT NULL REFERENCES recipe_collections(id) ON DELETE CASCADE,
-    recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(collection_id, recipe_id)
-);
-
--- Create indexes for collection recipes
-CREATE INDEX idx_collection_recipes_collection_id ON collection_recipes(collection_id);
-CREATE INDEX idx_collection_recipes_recipe_id ON collection_recipes(recipe_id);
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

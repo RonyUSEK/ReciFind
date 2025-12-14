@@ -33,10 +33,10 @@ router.get('/chef-applications', authenticate, requireRole(['admin']), async (re
     query += ' ORDER BY ca.created_at DESC';
 
     const result = await pool.query(query, params);
-    res.json({ applications: result.rows });
+    return res.json({ applications: result.rows });
   } catch (error) {
     console.error('Error fetching chef applications:', error);
-    res.status(500).json({ error: 'Failed to fetch chef applications' });
+    return res.status(500).json({ error: 'Failed to fetch chef applications' });
   }
 });
 
@@ -50,47 +50,40 @@ router.post('/chef-applications/:id/approve', authenticate, requireRole(['admin'
     const { id } = req.params;
     const adminId = req.user.userId;
 
-    // Get application
-    const appResult = await pool.query(
-      'SELECT * FROM chef_applications WHERE id = $1',
-      [id]
-    );
+    await pool.query('BEGIN');
 
+    const appResult = await pool.query('SELECT * FROM chef_applications WHERE id = $1 FOR UPDATE', [id]);
     if (appResult.rows.length === 0) {
+      await pool.query('ROLLBACK');
       return res.status(404).json({ error: 'Application not found' });
     }
 
     const application = appResult.rows[0];
 
-    if (application.status !== 'pending') {
-      return res.status(400).json({ 
-        error: `Application already ${application.status}` 
-      });
-    }
-
-    // Update application status
     await pool.query(
-      `UPDATE chef_applications 
-       SET status = 'approved', reviewed_by = $1, reviewed_at = CURRENT_TIMESTAMP
+      `UPDATE chef_applications
+       SET status = 'approved', reviewed_by = $1, reviewed_at = CURRENT_TIMESTAMP, admin_feedback = NULL
        WHERE id = $2`,
       [adminId, id]
     );
 
-    // Update user role to chef
-    await pool.query(
-      `UPDATE users 
-       SET role = 'chef', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [application.user_id]
-    );
+    await pool.query("UPDATE users SET role = 'chef' WHERE id = $1", [application.user_id]);
 
-    res.json({ 
-      message: 'Chef application approved successfully',
+    await pool.query('COMMIT');
+
+    res.json({
+      message: 'Chef application approved',
       application_id: id,
-      user_id: application.user_id
+      user_id: application.user_id,
     });
   } catch (error) {
     console.error('Error approving chef application:', error);
+    try {
+      const pool = req.app.locals.pool;
+      await pool.query('ROLLBACK');
+    } catch (_) {
+      // ignore
+    }
     res.status(500).json({ error: 'Failed to approve application' });
   }
 });
@@ -103,49 +96,43 @@ router.post('/chef-applications/:id/reject', authenticate, requireRole(['admin']
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
-    const { feedback } = req.body;
     const adminId = req.user.userId;
+    const feedback = String(req.body?.feedback || '').trim();
 
     if (!feedback) {
-      return res.status(400).json({ error: 'Feedback is required when rejecting' });
+      return res.status(400).json({ error: 'Feedback is required' });
     }
 
-    // Get application
-    const appResult = await pool.query(
-      'SELECT * FROM chef_applications WHERE id = $1',
-      [id]
-    );
+    await pool.query('BEGIN');
 
+    const appResult = await pool.query('SELECT * FROM chef_applications WHERE id = $1 FOR UPDATE', [id]);
     if (appResult.rows.length === 0) {
+      await pool.query('ROLLBACK');
       return res.status(404).json({ error: 'Application not found' });
     }
 
-    const application = appResult.rows[0];
-
-    if (application.status !== 'pending') {
-      return res.status(400).json({ 
-        error: `Application already ${application.status}` 
-      });
-    }
-
-    // Update application status
     await pool.query(
-      `UPDATE chef_applications 
-       SET status = 'rejected', 
-           reviewed_by = $1, 
-           admin_feedback = $2,
-           reviewed_at = CURRENT_TIMESTAMP
+      `UPDATE chef_applications
+       SET status = 'rejected', reviewed_by = $1, admin_feedback = $2, reviewed_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
       [adminId, feedback, id]
     );
 
-    res.json({ 
+    await pool.query('COMMIT');
+
+    res.json({
       message: 'Chef application rejected',
       application_id: id,
-      feedback
+      feedback,
     });
   } catch (error) {
     console.error('Error rejecting chef application:', error);
+    try {
+      const pool = req.app.locals.pool;
+      await pool.query('ROLLBACK');
+    } catch (_) {
+      // ignore
+    }
     res.status(500).json({ error: 'Failed to reject application' });
   }
 });
@@ -165,7 +152,7 @@ router.get('/recipes/pending', authenticate, requireRole(['admin']), async (req,
              u.reputation_score
       FROM recipes r
       JOIN users u ON r.chef_id = u.id
-      WHERE r.status = 'pending' AND r.source_type = 'chef'
+      WHERE r.status = 'pending' AND r.source_type = 'chef' AND r.deleted_at IS NULL
       ORDER BY r.created_at ASC
     `);
 
@@ -603,22 +590,43 @@ router.put('/users/:id/role', authenticate, requireRole(['admin']), async (req, 
       return res.status(400).json({ error: 'Cannot change your own role' });
     }
 
-    const result = await pool.query(
-      `UPDATE users 
-       SET role = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2
-       RETURNING id, name, email, role`,
-      [role, id]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
+      const prevResult = await client.query('SELECT role FROM users WHERE id = $1 FOR UPDATE', [id]);
+      if (prevResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const previousRole = prevResult.rows[0].role;
+
+      const result = await client.query(
+        `UPDATE users 
+         SET role = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING id, name, email, role`,
+        [role, id]
+      );
+
+      // If an admin demotes a chef back to user, clear the approved application record.
+      // Otherwise the user sees "approved" forever and cannot reapply.
+      if (previousRole === 'chef' && role === 'user') {
+        await client.query('DELETE FROM chef_applications WHERE user_id = $1', [id]);
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        message: 'User role updated successfully',
+        user: result.rows[0],
+      });
+    } catch (txError) {
+      await client.query('ROLLBACK');
+      throw txError;
+    } finally {
+      client.release();
     }
-
-    res.json({ 
-      message: 'User role updated successfully',
-      user: result.rows[0]
-    });
   } catch (error) {
     console.error('Error updating user role:', error);
     res.status(500).json({ error: 'Failed to update user role' });
@@ -658,6 +666,623 @@ router.put('/users/:id/reputation', authenticate, requireRole(['admin']), async 
   } catch (error) {
     console.error('Error updating reputation:', error);
     res.status(500).json({ error: 'Failed to update reputation' });
+  }
+});
+
+/**
+ * PATCH /api/admin/users/:id
+ * Update a user's basic profile (admin only)
+ * Body: { name?, email?, bio?, profile_image? }
+ */
+router.patch('/users/:id', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+    const userId = parseInt(id, 10);
+
+    if (!Number.isFinite(userId)) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+
+    const nextName = req.body?.name != null ? String(req.body.name).trim() : null;
+    const nextEmail = req.body?.email != null ? String(req.body.email).trim().toLowerCase() : null;
+    const nextBio = req.body?.bio != null ? String(req.body.bio).trim() : null;
+    const nextProfileImage = req.body?.profile_image != null ? String(req.body.profile_image).trim() : null;
+
+    if (nextName !== null && !nextName) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    if (nextEmail !== null) {
+      // lightweight email validation
+      const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail);
+      if (!ok) {
+        return res.status(400).json({ error: 'Invalid email' });
+      }
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET name = COALESCE($1, name),
+           email = COALESCE($2, email),
+           bio = COALESCE($3, bio),
+           profile_image = COALESCE($4, profile_image),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5
+       RETURNING id, name, email, role, reputation_score, bio, profile_image, created_at, updated_at`,
+      [nextName, nextEmail, nextBio, nextProfileImage, userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.json({
+      message: 'User updated successfully',
+      user: result.rows[0],
+    });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Email already exists' });
+    }
+    console.error('Error updating user profile (admin):', error);
+    return res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:id
+ * Delete a user (admin only)
+ */
+router.delete('/users/:id', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const { id } = req.params;
+    const userId = parseInt(id, 10);
+
+    if (!Number.isFinite(userId)) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
+
+    // Don't allow deleting self
+    if (userId === req.user.userId) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    const target = await pool.query('SELECT id, role FROM users WHERE id = $1', [userId]);
+    if (target.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (target.rows[0].role === 'admin') {
+      const admins = await pool.query("SELECT COUNT(*)::int AS c FROM users WHERE role = 'admin'");
+      const count = admins.rows[0]?.c ?? 0;
+      if (count <= 1) {
+        return res.status(400).json({ error: 'Cannot delete the last admin' });
+      }
+    }
+
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting user (admin):', error);
+    return res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+/**
+ * GET /api/admin/recipes
+ * List recipes for management (admin only)
+ * Query: q?, status?, includeDeleted?
+ */
+router.get('/recipes', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+    const includeDeleted = String(req.query.includeDeleted || '').toLowerCase() === 'true';
+
+    const where = [];
+    const params = [];
+    let i = 1;
+
+    if (q) {
+      where.push(`(r.title ILIKE $${i} OR r.description ILIKE $${i})`);
+      params.push(`%${q}%`);
+      i++;
+    }
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      where.push(`r.status = $${i}`);
+      params.push(status);
+      i++;
+    }
+    if (!includeDeleted) {
+      where.push('r.deleted_at IS NULL');
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const result = await pool.query(
+      `SELECT r.id, r.title, r.status, r.source_type, r.chef_id, r.deleted_at, r.created_at, r.updated_at,
+              u.name AS chef_name, u.email AS chef_email
+       FROM recipes r
+       LEFT JOIN users u ON r.chef_id = u.id
+       ${whereSql}
+       ORDER BY r.created_at DESC`,
+      params
+    );
+
+    return res.json({ recipes: result.rows });
+  } catch (error) {
+    console.error('Error listing recipes (admin):', error);
+    return res.status(500).json({ error: 'Failed to load recipes' });
+  }
+});
+
+/**
+ * PATCH /api/admin/recipes/:id
+ * Update recipe fields (admin only)
+ * Body: { title?, description?, instructions?, ingredients?, prep_time?, cook_time?, servings?, difficulty?, cuisine?, spice_level?, calories?, image_url?, chef_id?, status?, source_type?, is_featured?, deleted? }
+ */
+router.patch('/recipes/:id', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const recipeId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(recipeId)) {
+      return res.status(400).json({ error: 'Invalid recipe id' });
+    }
+
+    const body = req.body || {};
+
+    const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title');
+    const nextTitle = hasTitle ? String(body.title ?? '').trim() : undefined;
+
+    const hasDescription = Object.prototype.hasOwnProperty.call(body, 'description');
+    const nextDescription = hasDescription ? String(body.description ?? '').trim() : undefined;
+
+    const hasInstructions = Object.prototype.hasOwnProperty.call(body, 'instructions');
+    const nextInstructions = hasInstructions ? body.instructions : undefined;
+
+    const hasIngredients = Object.prototype.hasOwnProperty.call(body, 'ingredients');
+    const nextIngredients = hasIngredients ? body.ingredients : undefined;
+
+    const hasStatus = Object.prototype.hasOwnProperty.call(body, 'status');
+    const nextStatus = hasStatus ? (body.status == null ? null : String(body.status).trim()) : undefined;
+
+    const hasSourceType = Object.prototype.hasOwnProperty.call(body, 'source_type');
+    const nextSourceType = hasSourceType ? (body.source_type == null ? null : String(body.source_type).trim()) : undefined;
+
+    const hasIsFeatured = Object.prototype.hasOwnProperty.call(body, 'is_featured');
+    const nextIsFeatured = hasIsFeatured ? Boolean(body.is_featured) : undefined;
+
+    const hasChefId = Object.prototype.hasOwnProperty.call(body, 'chef_id');
+    const nextChefId = hasChefId ? body.chef_id : undefined;
+
+    const hasPrepTime = Object.prototype.hasOwnProperty.call(body, 'prep_time');
+    const nextPrepTime = hasPrepTime ? body.prep_time : undefined;
+
+    const hasCookTime = Object.prototype.hasOwnProperty.call(body, 'cook_time');
+    const nextCookTime = hasCookTime ? body.cook_time : undefined;
+
+    const hasServings = Object.prototype.hasOwnProperty.call(body, 'servings');
+    const nextServings = hasServings ? body.servings : undefined;
+
+    const hasDifficulty = Object.prototype.hasOwnProperty.call(body, 'difficulty');
+    const nextDifficulty = hasDifficulty ? (body.difficulty == null ? null : String(body.difficulty).trim()) : undefined;
+
+    const hasCuisine = Object.prototype.hasOwnProperty.call(body, 'cuisine');
+    const nextCuisine = hasCuisine ? (body.cuisine == null ? null : String(body.cuisine).trim()) : undefined;
+
+    const hasSpice = Object.prototype.hasOwnProperty.call(body, 'spice_level');
+    const nextSpice = hasSpice ? (body.spice_level == null ? null : String(body.spice_level).trim()) : undefined;
+
+    const hasCalories = Object.prototype.hasOwnProperty.call(body, 'calories');
+    const nextCalories = hasCalories ? body.calories : undefined;
+
+    const hasImageUrl = Object.prototype.hasOwnProperty.call(body, 'image_url');
+    const nextImageUrl = hasImageUrl ? (body.image_url == null ? null : String(body.image_url).trim()) : undefined;
+
+    const hasDeleted = Object.prototype.hasOwnProperty.call(body, 'deleted');
+    const deletedAt = hasDeleted ? (body.deleted ? new Date() : null) : undefined;
+
+    if (hasTitle && !nextTitle) {
+      return res.status(400).json({ error: 'Title is required' });
+    }
+    if (hasDescription && !nextDescription) {
+      return res.status(400).json({ error: 'Description is required' });
+    }
+
+    if (nextStatus !== undefined && nextStatus !== null && !['pending', 'approved', 'rejected'].includes(nextStatus)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    if (nextSourceType !== undefined && nextSourceType !== null && !['ai', 'chef'].includes(nextSourceType)) {
+      return res.status(400).json({ error: 'Invalid source_type' });
+    }
+
+    if (hasInstructions) {
+      if (!Array.isArray(nextInstructions) || nextInstructions.length === 0) {
+        return res.status(400).json({ error: 'Instructions must be a non-empty array' });
+      }
+      const bad = nextInstructions.some((s) => typeof s !== 'string' || !String(s).trim());
+      if (bad) {
+        return res.status(400).json({ error: 'Each instruction step must be a non-empty string' });
+      }
+    }
+
+    if (hasIngredients) {
+      if (!Array.isArray(nextIngredients)) {
+        return res.status(400).json({ error: 'Ingredients must be an array' });
+      }
+    }
+
+    const parseNullableInt = (value) => {
+      if (value == null || value === '') return null;
+      const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+      if (!Number.isFinite(n)) return NaN;
+      return n;
+    };
+
+    if (hasPrepTime) {
+      const n = parseNullableInt(nextPrepTime);
+      if (Number.isNaN(n) || (n !== null && n < 0)) return res.status(400).json({ error: 'Invalid prep_time' });
+    }
+    if (hasCookTime) {
+      const n = parseNullableInt(nextCookTime);
+      if (Number.isNaN(n) || (n !== null && n < 0)) return res.status(400).json({ error: 'Invalid cook_time' });
+    }
+    if (hasServings) {
+      const n = parseNullableInt(nextServings);
+      if (Number.isNaN(n) || (n !== null && n < 0)) return res.status(400).json({ error: 'Invalid servings' });
+    }
+    if (hasCalories) {
+      const n = parseNullableInt(nextCalories);
+      if (Number.isNaN(n) || (n !== null && n < 0)) return res.status(400).json({ error: 'Invalid calories' });
+    }
+    if (hasDifficulty && nextDifficulty !== undefined && nextDifficulty !== null && nextDifficulty !== '' && !['easy', 'medium', 'hard'].includes(nextDifficulty)) {
+      return res.status(400).json({ error: 'Invalid difficulty' });
+    }
+    if (hasSpice && nextSpice !== undefined && nextSpice !== null && nextSpice !== '' && !['mild', 'medium', 'hot'].includes(nextSpice)) {
+      return res.status(400).json({ error: 'Invalid spice_level' });
+    }
+
+    let resolvedChefId = undefined;
+    if (hasChefId) {
+      if (nextChefId == null || nextChefId === '') {
+        resolvedChefId = null;
+      } else {
+        const n = parseInt(String(nextChefId), 10);
+        if (!Number.isFinite(n)) {
+          return res.status(400).json({ error: 'Invalid chef_id' });
+        }
+        const userRes = await pool.query('SELECT id, role FROM users WHERE id = $1', [n]);
+        if (userRes.rows.length === 0) {
+          return res.status(400).json({ error: 'chef_id user not found' });
+        }
+        const role = userRes.rows[0].role;
+        if (!['chef', 'admin'].includes(role)) {
+          return res.status(400).json({ error: 'chef_id must belong to a chef or admin' });
+        }
+        resolvedChefId = n;
+      }
+    }
+
+    const setParts = [];
+    const params = [];
+    let p = 1;
+
+    if (hasTitle) {
+      setParts.push(`title = $${p}`);
+      params.push(nextTitle);
+      p++;
+    }
+    if (hasDescription) {
+      setParts.push(`description = $${p}`);
+      params.push(nextDescription);
+      p++;
+    }
+    if (hasInstructions) {
+      setParts.push(`instructions = $${p}`);
+      params.push(JSON.stringify(nextInstructions));
+      p++;
+    }
+    if (hasStatus) {
+      setParts.push(`status = $${p}`);
+      params.push(nextStatus);
+      p++;
+    }
+    if (hasSourceType) {
+      setParts.push(`source_type = $${p}`);
+      params.push(nextSourceType);
+      p++;
+    }
+    if (hasIsFeatured) {
+      setParts.push(`is_featured = $${p}`);
+      params.push(nextIsFeatured);
+      p++;
+    }
+    if (hasChefId) {
+      setParts.push(`chef_id = $${p}`);
+      params.push(resolvedChefId);
+      p++;
+    }
+    if (hasPrepTime) {
+      setParts.push(`prep_time = $${p}`);
+      params.push(parseNullableInt(nextPrepTime));
+      p++;
+    }
+    if (hasCookTime) {
+      setParts.push(`cook_time = $${p}`);
+      params.push(parseNullableInt(nextCookTime));
+      p++;
+    }
+    if (hasServings) {
+      setParts.push(`servings = $${p}`);
+      params.push(parseNullableInt(nextServings));
+      p++;
+    }
+    if (hasDifficulty) {
+      setParts.push(`difficulty = $${p}`);
+      params.push(nextDifficulty === '' ? null : nextDifficulty);
+      p++;
+    }
+    if (hasCuisine) {
+      setParts.push(`cuisine = $${p}`);
+      params.push(nextCuisine);
+      p++;
+    }
+    if (hasSpice) {
+      setParts.push(`spice_level = $${p}`);
+      params.push(nextSpice === '' ? null : nextSpice);
+      p++;
+    }
+    if (hasCalories) {
+      setParts.push(`calories = $${p}`);
+      params.push(parseNullableInt(nextCalories));
+      p++;
+    }
+    if (hasImageUrl) {
+      setParts.push(`image_url = $${p}`);
+      params.push(nextImageUrl);
+      p++;
+    }
+    if (hasDeleted) {
+      setParts.push(`deleted_at = $${p}`);
+      params.push(deletedAt);
+      p++;
+    }
+
+    if (setParts.length === 0 && !hasIngredients) {
+      return res.status(400).json({ error: 'No changes provided' });
+    }
+
+    await pool.query('BEGIN');
+
+    if (setParts.length > 0) {
+      setParts.push('updated_at = CURRENT_TIMESTAMP');
+      params.push(recipeId);
+
+      const result = await pool.query(
+        `UPDATE recipes
+         SET ${setParts.join(', ')}
+         WHERE id = $${p}
+         RETURNING id`,
+        params
+      );
+
+      if (result.rows.length === 0) {
+        await pool.query('ROLLBACK');
+        return res.status(404).json({ error: 'Recipe not found' });
+      }
+    } else {
+      const exists = await pool.query('SELECT id FROM recipes WHERE id = $1', [recipeId]);
+      if (exists.rows.length === 0) {
+        await pool.query('ROLLBACK');
+        return res.status(404).json({ error: 'Recipe not found' });
+      }
+    }
+
+    if (hasIngredients) {
+      await pool.query('DELETE FROM recipe_ingredients WHERE recipe_id = $1', [recipeId]);
+
+      const createdIdsByName = new Map();
+      for (const ing of nextIngredients) {
+        if (!ing || typeof ing !== 'object') {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: 'Each ingredient must be an object' });
+        }
+        const rawName = ing.name;
+        const name = typeof rawName === 'string' ? rawName.trim() : '';
+        if (!name) {
+          await pool.query('ROLLBACK');
+          return res.status(400).json({ error: 'Ingredient name is required' });
+        }
+        const quantity = ing.quantity == null ? null : String(ing.quantity).trim();
+        const unit = ing.unit == null ? null : String(ing.unit).trim();
+
+        const normalized = normalizeIngredientName(name);
+        let ingredientId = createdIdsByName.get(normalized);
+
+        if (!ingredientId) {
+          const existing = await pool.query('SELECT id FROM ingredients WHERE LOWER(name) = LOWER($1)', [name]);
+          if (existing.rows.length > 0) {
+            ingredientId = existing.rows[0].id;
+          } else {
+            const created = await pool.query('INSERT INTO ingredients (name) VALUES ($1) RETURNING id', [name]);
+            ingredientId = created.rows[0].id;
+          }
+          createdIdsByName.set(normalized, ingredientId);
+        }
+
+        await pool.query(
+          'INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit) VALUES ($1, $2, $3, $4)',
+          [recipeId, ingredientId, quantity, unit]
+        );
+      }
+
+      await pool.query('DELETE FROM recipe_pending_ingredients WHERE recipe_id = $1', [recipeId]);
+    }
+
+    await pool.query('COMMIT');
+
+    const recipeResult = await pool.query(
+      `SELECT id, title, description, status, source_type, chef_id, is_featured, deleted_at, prep_time, cook_time, servings,
+              difficulty, cuisine, spice_level, calories, image_url, instructions, created_at, updated_at
+       FROM recipes WHERE id = $1`,
+      [recipeId]
+    );
+
+    return res.json({ message: 'Recipe updated successfully', recipe: recipeResult.rows[0] });
+  } catch (error) {
+    console.error('Error updating recipe (admin):', error);
+    try {
+      const pool = req.app.locals.pool;
+      await pool.query('ROLLBACK');
+    } catch (_) {
+      // ignore
+    }
+    return res.status(500).json({ error: 'Failed to update recipe' });
+  }
+});
+
+/**
+ * DELETE /api/admin/recipes/:id
+ * Hard delete a recipe (admin only)
+ */
+router.delete('/recipes/:id', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const recipeId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(recipeId)) {
+      return res.status(400).json({ error: 'Invalid recipe id' });
+    }
+
+    const result = await pool.query('DELETE FROM recipes WHERE id = $1 RETURNING id', [recipeId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Recipe not found' });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting recipe (admin):', error);
+    return res.status(500).json({ error: 'Failed to delete recipe' });
+  }
+});
+
+/**
+ * GET /api/admin/ingredients
+ * List ingredients (admin only)
+ */
+router.get('/ingredients', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+
+    if (!q) {
+      const result = await pool.query('SELECT id, name, category FROM ingredients ORDER BY name ASC');
+      return res.json({ ingredients: result.rows });
+    }
+
+    const result = await pool.query(
+      'SELECT id, name, category FROM ingredients WHERE LOWER(name) LIKE $1 ORDER BY name ASC',
+      [`%${q}%`]
+    );
+    return res.json({ ingredients: result.rows });
+  } catch (error) {
+    console.error('Error listing ingredients (admin):', error);
+    return res.status(500).json({ error: 'Failed to load ingredients' });
+  }
+});
+
+/**
+ * POST /api/admin/ingredients
+ * Create ingredient (admin only)
+ */
+router.post('/ingredients', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const name = String(req.body?.name || '').trim();
+    const category = req.body?.category != null ? String(req.body.category).trim() : null;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Ingredient name is required' });
+    }
+
+    const result = await pool.query(
+      'INSERT INTO ingredients (name, category) VALUES ($1, $2) RETURNING id, name, category',
+      [name, category]
+    );
+    return res.status(201).json({ ingredient: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Ingredient already exists' });
+    }
+    console.error('Error creating ingredient (admin):', error);
+    return res.status(500).json({ error: 'Failed to create ingredient' });
+  }
+});
+
+/**
+ * PATCH /api/admin/ingredients/:id
+ * Update ingredient (admin only)
+ */
+router.patch('/ingredients/:id', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const ingredientId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(ingredientId)) {
+      return res.status(400).json({ error: 'Invalid ingredient id' });
+    }
+
+    const nextName = req.body?.name != null ? String(req.body.name).trim() : null;
+    const nextCategory = req.body?.category != null ? String(req.body.category).trim() : null;
+
+    if (nextName !== null && !nextName) {
+      return res.status(400).json({ error: 'Ingredient name is required' });
+    }
+
+    const result = await pool.query(
+      `UPDATE ingredients
+       SET name = COALESCE($1, name),
+           category = COALESCE($2, category)
+       WHERE id = $3
+       RETURNING id, name, category`,
+      [nextName, nextCategory, ingredientId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ingredient not found' });
+    }
+
+    return res.json({ ingredient: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Ingredient already exists' });
+    }
+    console.error('Error updating ingredient (admin):', error);
+    return res.status(500).json({ error: 'Failed to update ingredient' });
+  }
+});
+
+/**
+ * DELETE /api/admin/ingredients/:id
+ * Delete ingredient (admin only)
+ */
+router.delete('/ingredients/:id', authenticate, requireRole(['admin']), async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+    const ingredientId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(ingredientId)) {
+      return res.status(400).json({ error: 'Invalid ingredient id' });
+    }
+
+    const result = await pool.query('DELETE FROM ingredients WHERE id = $1 RETURNING id', [ingredientId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Ingredient not found' });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting ingredient (admin):', error);
+    return res.status(500).json({ error: 'Failed to delete ingredient' });
   }
 });
 

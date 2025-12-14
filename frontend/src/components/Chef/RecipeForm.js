@@ -8,6 +8,9 @@ function RecipeForm({ isEdit = false }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [recipeStatus, setRecipeStatus] = useState(null);
+  const [lastReviewFeedback, setLastReviewFeedback] = useState('');
+  const [resubmit, setResubmit] = useState(true);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -41,6 +44,10 @@ function RecipeForm({ isEdit = false }) {
       setLoading(true);
       const response = await api.get(`/api/recipes/${id}`);
       const recipe = response.data;
+
+      setRecipeStatus(recipe.status || null);
+      setLastReviewFeedback(recipe?.last_review?.feedback || '');
+      setResubmit(true);
 
       setFormData({
         title: recipe.title || '',
@@ -177,11 +184,16 @@ function RecipeForm({ isEdit = false }) {
         servings: formData.servings ? parseInt(formData.servings) : null,
         calories: formData.calories ? parseInt(formData.calories) : null,
         image_url,
+        ...(isEdit && recipeStatus === 'rejected' ? { resubmit } : {}),
       };
 
       if (isEdit) {
         await api.put(`/api/recipes/${id}`, payload);
-        setSuccess('Recipe updated successfully!');
+        if (recipeStatus === 'rejected' && resubmit) {
+          setSuccess('Recipe updated and resubmitted for approval!');
+        } else {
+          setSuccess('Recipe updated successfully!');
+        }
       } else {
         const res = await api.post('/api/recipes', payload);
         const pending = res?.data?.pending_ingredients;
@@ -239,6 +251,13 @@ function RecipeForm({ isEdit = false }) {
           </div>
         )}
 
+        {isEdit && recipeStatus === 'rejected' && lastReviewFeedback && (
+          <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-900 dark:text-red-100 px-4 py-3 rounded">
+            <p className="text-sm font-semibold mb-1">This recipe was rejected</p>
+            <p className="text-sm whitespace-pre-wrap">{lastReviewFeedback}</p>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 space-y-6">
           {/* Basic Info */}
           <div>
@@ -292,6 +311,21 @@ function RecipeForm({ isEdit = false }) {
                   </p>
                 )}
               </div>
+
+              {isEdit && recipeStatus === 'rejected' && (
+                <div className="flex items-center gap-2">
+                  <input
+                    id="resubmit"
+                    type="checkbox"
+                    checked={resubmit}
+                    onChange={(e) => setResubmit(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <label htmlFor="resubmit" className="text-sm text-gray-700 dark:text-gray-300">
+                    Resubmit for admin approval after saving
+                  </label>
+                </div>
+              )}
             </div>
           </div>
 

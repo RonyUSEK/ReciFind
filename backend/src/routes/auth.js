@@ -160,6 +160,40 @@ router.get('/me', authenticate, async (req, res) => {
 });
 
 /**
+ * POST /api/auth/refresh
+ * Issue a fresh JWT using the user's current DB role.
+ * Useful after admins change a user's role (e.g., approving chef applications).
+ */
+router.post('/refresh', authenticate, async (req, res) => {
+  try {
+    const pool = req.app.locals.pool;
+
+    const result = await pool.query(
+      `SELECT id, email, name, role, bio, profile_image, reputation_score,
+              is_verified, created_at
+       FROM users
+       WHERE id = $1`,
+      [req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = result.rows[0];
+    const token = generateToken(user);
+
+    res.json({
+      token,
+      user,
+    });
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    res.status(500).json({ error: 'Failed to refresh token' });
+  }
+});
+
+/**
  * POST /api/auth/apply-chef
  * Submit chef application for admin review
  */
@@ -222,9 +256,9 @@ router.post('/apply-chef', authenticate, async (req, res) => {
         // Allow reapplication - delete old one
         await pool.query('DELETE FROM chef_applications WHERE user_id = $1', [userId]);
       } else if (app.status === 'approved') {
-        return res.status(400).json({ 
-          error: 'Your application was already approved' 
-        });
+        // Normally an approved application means the user is a chef.
+        // But if an admin later demotes them back to "user", we need to allow reapplying.
+        await pool.query('DELETE FROM chef_applications WHERE user_id = $1', [userId]);
       }
     }
 

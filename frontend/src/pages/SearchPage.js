@@ -4,6 +4,8 @@ import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import IngredientSearchBar from '../components/Common/IngredientSearchBar';
 import { resolveImageUrl } from '../utils/resolveImageUrl';
+import useToast from '../hooks/useToast';
+import Toast from '../components/Common/Toast';
 
 const AI_INGREDIENT_SUGGESTIONS = [
   'Chicken', 'Beef', 'Salmon', 'Eggs', 'Tofu',
@@ -16,6 +18,7 @@ const SearchPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { toast, showToast, hideToast } = useToast();
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [totalResults, setTotalResults] = useState(0);
@@ -29,6 +32,12 @@ const SearchPage = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
   const [generatedRecipe, setGeneratedRecipe] = useState(null);
+  const [myCollections, setMyCollections] = useState([]);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [selectedCollectionId, setSelectedCollectionId] = useState('');
+  const [aiIsSaved, setAiIsSaved] = useState(false);
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const [createCollectionLoading, setCreateCollectionLoading] = useState(false);
   const [aiDraft, setAiDraft] = useState({
     dishIdea: '',
     ingredients: [],
@@ -36,6 +45,8 @@ const SearchPage = () => {
     extraInstructions: '',
   });
   const [aiCredits, setAiCredits] = useState({ limit: null, used: null, remaining: null });
+
+  const [ingredientSuggestions, setIngredientSuggestions] = useState([]);
   
   // Filter states
   const [filters, setFilters] = useState({
@@ -63,6 +74,147 @@ const SearchPage = () => {
       openAIModal();
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    const fetchMyCollections = async () => {
+      if (!user || !showAIModal) return;
+      try {
+        setCollectionsLoading(true);
+        const res = await api.get('/api/collections/my');
+        const list = res.data?.collections || [];
+        setMyCollections(list);
+        const first = list.find((c) => String(c.name || '').toLowerCase() !== 'saved');
+        setSelectedCollectionId(first ? String(first.id) : '');
+      } catch (err) {
+        setMyCollections([]);
+      } finally {
+        setCollectionsLoading(false);
+      }
+    };
+
+    fetchMyCollections();
+  }, [user, showAIModal]);
+
+  const saveAiRecipe = async (recipe) => {
+    if (!user) {
+      showToast('Please log in to save recipes', 'error');
+      return;
+    }
+
+    try {
+      const res = await api.post('/api/collections/saved/toggle', { aiRecipe: recipe });
+      setAiIsSaved(Boolean(res.data?.saved));
+      showToast(res.data?.saved ? 'Saved!' : 'Removed from saved', res.data?.saved ? 'success' : 'info');
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to save AI recipe', 'error');
+    }
+  };
+
+  const addAiRecipeToCollection = async (collectionIdRaw, recipe) => {
+    if (!user) {
+      showToast('Please log in first', 'error');
+      return;
+    }
+
+    if (collectionIdRaw === '__new__') {
+      showToast('Create the collection first', 'error');
+      return;
+    }
+
+    const collectionId = parseInt(collectionIdRaw, 10);
+    if (!Number.isFinite(collectionId)) {
+      showToast('Select a collection first', 'error');
+      return;
+    }
+
+    try {
+      await api.post(`/api/collections/${collectionId}/items`, { aiRecipe: recipe });
+      showToast('Added to collection', 'success');
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to add to collection', 'error');
+    }
+  };
+
+  const createCollectionFromDropdown = async () => {
+    if (!user) {
+      showToast('Please log in first', 'error');
+      navigate('/login');
+      return;
+    }
+
+    const name = String(newCollectionName || '').trim();
+    if (!name) {
+      showToast('Enter a collection name', 'error');
+      return;
+    }
+
+    try {
+      setCreateCollectionLoading(true);
+      const res = await api.post('/api/collections', { name, isPublic: false });
+      const created = res.data?.collection;
+      if (created?.id) {
+        setMyCollections((prev) => [...(prev || []), created]);
+        setSelectedCollectionId(String(created.id));
+        setNewCollectionName('');
+        showToast('Collection created', 'success');
+      } else {
+        showToast('Collection created', 'success');
+      }
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to create collection', 'error');
+    } finally {
+      setCreateCollectionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get('/api/ingredients')
+      .then((res) => {
+        if (!alive) return;
+        const names = (res.data || []).map((i) => i?.name).filter(Boolean);
+        setIngredientSuggestions(names);
+      })
+      .catch(() => {
+        // ignore
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const requestIngredient = async (name) => {
+    const canonicalName = String(name || '').trim();
+    if (!canonicalName) return;
+
+    if (!user) {
+      showToast('Please log in to request ingredients.', 'error');
+      navigate('/login');
+      return;
+    }
+
+    try {
+      const res = await api.post('/api/ingredients/requests', { name: canonicalName });
+      const status = res.data?.status;
+      const message = res.data?.message || 'Request submitted.';
+
+      if (status === 'pending') {
+        showToast(message, 'success');
+      } else if (status === 'exists' || status === 'approved') {
+        showToast(message, 'warning');
+      } else {
+        showToast(message, 'success');
+      }
+    } catch (err) {
+      if (err.response?.status === 401) {
+        showToast('Please log in to request ingredients.', 'error');
+        navigate('/login');
+        return;
+      }
+      showToast(err.response?.data?.error || 'Failed to submit ingredient request', 'error');
+    }
+  };
 
   const deriveInitialAIDraft = () => {
     const dishIdea = (searchParams.get('q') || filters.q || '').trim();
@@ -100,6 +252,8 @@ const SearchPage = () => {
 
     setAiError(null);
     setGeneratedRecipe(null);
+    setAiIsSaved(false);
+    setNewCollectionName('');
     setAiDraft(deriveInitialAIDraft());
     setShowAIModal(true);
 
@@ -194,6 +348,7 @@ const SearchPage = () => {
     setAiLoading(true);
     setAiError(null);
     setGeneratedRecipe(null);
+    setAiIsSaved(false);
 
     try {
       const response = await api.post('/api/recipes/generate', {
@@ -302,6 +457,8 @@ const SearchPage = () => {
           activeFilterCount={activeFilterCount}
           showFilters={showFilters}
           setShowFilters={setShowFilters}
+          ingredientSuggestions={ingredientSuggestions}
+          onRequestIngredient={requestIngredient}
         />
 
         {/* Results Section */}
@@ -405,14 +562,51 @@ const SearchPage = () => {
             setGeneratedRecipe(null);
             setAiError(null);
           }}
+          userCanSave={Boolean(user)}
+          collections={myCollections}
+          collectionsLoading={collectionsLoading}
+          selectedCollectionId={selectedCollectionId}
+          setSelectedCollectionId={setSelectedCollectionId}
+          onSaveAi={saveAiRecipe}
+          onAddAiToCollection={addAiRecipeToCollection}
+          aiIsSaved={aiIsSaved}
+          newCollectionName={newCollectionName}
+          setNewCollectionName={setNewCollectionName}
+          createCollectionLoading={createCollectionLoading}
+          onCreateCollection={createCollectionFromDropdown}
         />
       )}
+
+      <Toast show={toast.show} message={toast.message} type={toast.type} onClose={hideToast} />
     </div>
   );
 };
 
 // AI Generation Modal Component
-const AIGenerationModal = ({ loading, error, recipe, draft, setDraft, credits, onClose, onSubmit, onFindRealRecipes, onEdit }) => {
+const AIGenerationModal = ({
+  loading,
+  error,
+  recipe,
+  draft,
+  setDraft,
+  credits,
+  onClose,
+  onSubmit,
+  onFindRealRecipes,
+  onEdit,
+  userCanSave,
+  collections,
+  collectionsLoading,
+  selectedCollectionId,
+  setSelectedCollectionId,
+  onSaveAi,
+  onAddAiToCollection,
+  aiIsSaved,
+  newCollectionName,
+  setNewCollectionName,
+  createCollectionLoading,
+  onCreateCollection,
+}) => {
   const addIngredient = (raw) => {
     const value = String(raw || '').trim().toLowerCase();
     if (!value) return;
@@ -685,6 +879,77 @@ const AIGenerationModal = ({ loading, error, recipe, draft, setDraft, credits, o
                 >
                   Find real recipes like this
                 </button>
+
+                {userCanSave ? (
+                  <button
+                    type="button"
+                    onClick={() => onSaveAi(recipe)}
+                    className="w-full sm:w-auto justify-center flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-lg transition"
+                  >
+                    <svg
+                      className="w-4 h-4 sm:w-5 sm:h-5"
+                      fill={aiIsSaved ? 'currentColor' : 'none'}
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                      />
+                    </svg>
+                    {aiIsSaved ? 'Saved' : 'Save'}
+                  </button>
+                ) : null}
+
+                {userCanSave ? (
+                  <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+                    <select
+                      value={selectedCollectionId}
+                      onChange={(e) => setSelectedCollectionId(e.target.value)}
+                      disabled={collectionsLoading}
+                      className="w-full sm:w-56 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      aria-label="Select collection"
+                    >
+                      <option value="">Select collection</option>
+                      {(collections || [])
+                        .filter((c) => String(c.name || '').toLowerCase() !== 'saved')
+                        .map((c) => (
+                          <option key={c.id} value={String(c.id)}>
+                            {c.name}{c.is_public ? ' (Public)' : ''}
+                          </option>
+                        ))}
+                      <option value="__new__">+ Create new collection…</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => onAddAiToCollection(selectedCollectionId, recipe)}
+                      className="w-full sm:w-auto px-4 py-2 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-semibold rounded-lg"
+                    >
+                      Add to Collection
+                    </button>
+
+                    {selectedCollectionId === '__new__' ? (
+                      <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+                        <input
+                          value={newCollectionName}
+                          onChange={(e) => setNewCollectionName(e.target.value)}
+                          placeholder="New collection name"
+                          className="w-full sm:w-56 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                        />
+                        <button
+                          type="button"
+                          onClick={onCreateCollection}
+                          disabled={createCollectionLoading}
+                          className="w-full sm:w-auto px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold rounded-lg transition"
+                        >
+                          Create
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   onClick={onEdit}
@@ -724,8 +989,38 @@ const AIGenerationModal = ({ loading, error, recipe, draft, setDraft, credits, o
 };
 
 // Filter Sidebar Component
-const FilterSidebar = ({ filters, updateFilters, clearFilters, activeFilterCount, showFilters, setShowFilters }) => {
+const FilterSidebar = ({
+  filters,
+  updateFilters,
+  clearFilters,
+  activeFilterCount,
+  showFilters,
+  setShowFilters,
+  ingredientSuggestions = [],
+  onRequestIngredient,
+}) => {
   const [localFilters, setLocalFilters] = useState(filters);
+  const [ingredientInput, setIngredientInput] = useState('');
+
+  const includeIngredients = useMemo(() => {
+    return String(localFilters.ingredients || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }, [localFilters.ingredients]);
+
+  const addIncludeIngredient = (raw) => {
+    const value = String(raw || '').trim().toLowerCase();
+    if (!value) return;
+    const next = Array.from(new Set([...(includeIngredients || []), value]));
+    setLocalFilters((prev) => ({ ...prev, ingredients: next.join(',') }));
+  };
+
+  const removeIncludeIngredient = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    const next = (includeIngredients || []).filter((i) => String(i).toLowerCase() !== normalized);
+    setLocalFilters((prev) => ({ ...prev, ingredients: next.join(',') }));
+  };
 
   const handleApply = () => {
     updateFilters(localFilters);
@@ -774,14 +1069,37 @@ const FilterSidebar = ({ filters, updateFilters, clearFilters, activeFilterCount
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Include Ingredients
           </label>
-          <input
-            type="text"
-            value={localFilters.ingredients}
-            onChange={(e) => setLocalFilters({ ...localFilters, ingredients: e.target.value })}
-            placeholder="e.g., chicken, garlic"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-green-500"
+          <IngredientSearchBar
+            inputId="filter-include-ingredients"
+            className="shadow rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+            selectedValues={includeIngredients}
+            chips={includeIngredients.map((ing) => (
+              <span
+                key={ing}
+                className="inline-flex items-center gap-2 text-xs font-medium px-3 py-1 rounded-full shadow-sm bg-green-100 dark:bg-green-700 text-green-800 dark:text-green-100"
+              >
+                <span className="capitalize">{ing}</span>
+                <button
+                  type="button"
+                  onClick={() => removeIncludeIngredient(ing)}
+                  className="font-bold leading-none opacity-80 hover:opacity-100"
+                  aria-label={`Remove ${ing}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            inputValue={ingredientInput}
+            setInputValue={setIngredientInput}
+            allSuggestions={ingredientSuggestions}
+            onAdd={addIncludeIngredient}
+            onRequest={onRequestIngredient}
+            requestLabel="Request admin to add"
+            placeholder={includeIngredients.length === 0 ? 'e.g., chicken, garlic…' : ''}
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Separate with commas</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Add ingredients to include. If it’s not found, you can request it.
+          </p>
         </div>
 
         {/* Exclude Ingredients */}

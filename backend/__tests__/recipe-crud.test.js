@@ -14,6 +14,7 @@ describe('Recipe CRUD API (Chef Only)', () => {
   let adminToken;
   let chefUser;
   const createdRecipeIds = new Set();
+  const createdIngredientRequestIds = new Set();
 
   beforeAll(async () => {
     // Get test users from database
@@ -207,6 +208,77 @@ describe('Recipe CRUD API (Chef Only)', () => {
         .send({ title: 'No auth' })
         .expect(401);
     });
+
+    test('should persist ingredient updates for pending recipe', async () => {
+      const ingredientPayload = {
+        ingredients: [
+          { name: 'salt', quantity: '1', unit: 'tsp' }
+        ]
+      };
+
+      await request(app)
+        .put(`/api/recipes/${testRecipeId}`)
+        .set('Authorization', `Bearer ${chefToken}`)
+        .send(ingredientPayload)
+        .expect(200);
+
+      const check = await pool.query(
+        `SELECT i.name, ri.quantity, ri.unit
+         FROM recipe_ingredients ri
+         JOIN ingredients i ON ri.ingredient_id = i.id
+         WHERE ri.recipe_id = $1`,
+        [testRecipeId]
+      );
+
+      expect(check.rows.length).toBeGreaterThan(0);
+      const saltRow = check.rows.find(r => (r.name || '').toLowerCase() === 'salt');
+      expect(saltRow).toBeTruthy();
+      expect(saltRow.quantity).toBe('1');
+      expect(saltRow.unit).toBe('tsp');
+    });
+
+    test('resubmitting a rejected recipe should create ingredient requests for unknown ingredients', async () => {
+      const uniqueName = `test_unknown_ing_${Date.now()}`;
+
+      const rejected = await pool.query(
+        `INSERT INTO recipes (title, description, instructions, chef_id, status)
+         VALUES ($1, $2, $3, $4, 'rejected')
+         RETURNING id`,
+        ['Rejected Recipe', 'Rejected description', '["Step 1"]', chefUser.id]
+      );
+      const rejectedRecipeId = rejected.rows[0].id;
+      createdRecipeIds.add(rejectedRecipeId);
+
+      const response = await request(app)
+        .put(`/api/recipes/${rejectedRecipeId}`)
+        .set('Authorization', `Bearer ${chefToken}`)
+        .send({
+          ingredients: [{ name: uniqueName, quantity: '2', unit: 'cups' }],
+          resubmit: true
+        })
+        .expect(200);
+
+      expect(response.body.status).toBe('pending');
+
+      const requestResult = await pool.query(
+        'SELECT id, status FROM ingredient_requests WHERE normalized_name = $1',
+        [uniqueName.toLowerCase()]
+      );
+      expect(requestResult.rows.length).toBe(1);
+      expect(requestResult.rows[0].status).toBe('pending');
+      createdIngredientRequestIds.add(requestResult.rows[0].id);
+
+      const linkResult = await pool.query(
+        `SELECT requested_name, quantity, unit
+         FROM recipe_pending_ingredients
+         WHERE recipe_id = $1 AND ingredient_request_id = $2`,
+        [rejectedRecipeId, requestResult.rows[0].id]
+      );
+      expect(linkResult.rows.length).toBe(1);
+      expect(linkResult.rows[0].requested_name).toBe(uniqueName);
+      expect(linkResult.rows[0].quantity).toBe('2');
+      expect(linkResult.rows[0].unit).toBe('cups');
+    });
   });
 
   describe('DELETE /api/recipes/:id - Delete Recipe', () => {
@@ -238,12 +310,19 @@ describe('Recipe CRUD API (Chef Only)', () => {
         .set('Authorization', `Bearer ${chefToken}`)
         .expect(200);
 
-      // Verify deletion
+      // Should no longer be retrievable via the API
+      await request(app)
+        .get(`/api/recipes/${deleteTestRecipeId}`)
+        .set('Authorization', `Bearer ${chefToken}`)
+        .expect(404);
+
+      // Verify soft deletion
       const check = await pool.query(
-        'SELECT * FROM recipes WHERE id = $1',
+        'SELECT deleted_at FROM recipes WHERE id = $1',
         [deleteTestRecipeId]
       );
-      expect(check.rows.length).toBe(0);
+      expect(check.rows.length).toBe(1);
+      expect(check.rows[0].deleted_at).toBeTruthy();
     });
 
     test('should not allow chef to delete another chef\'s recipe', async () => {
@@ -272,6 +351,10 @@ describe('Recipe CRUD API (Chef Only)', () => {
     // Cleanup any recipes created by this test file (best-effort).
     if (createdRecipeIds.size > 0) {
       await pool.query('DELETE FROM recipes WHERE id = ANY($1::int[])', [Array.from(createdRecipeIds)]);
+    }
+
+    if (createdIngredientRequestIds.size > 0) {
+      await pool.query('DELETE FROM ingredient_requests WHERE id = ANY($1::int[])', [Array.from(createdIngredientRequestIds)]);
     }
     await pool.end();
   });

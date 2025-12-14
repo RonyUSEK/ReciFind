@@ -9,11 +9,13 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const SOFT_DELETE_DAYS = parseInt(process.env.RECIPE_SOFT_DELETE_DAYS || '7', 10);
+
 // CORS Middleware - Allow all origins for development (mobile access)
 app.use(cors({
   origin: true, // Allow all origins (for mobile device access on local network)
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
@@ -96,13 +98,92 @@ async function initializeDatabaseIfNeeded() {
     await pool.query('CREATE INDEX IF NOT EXISTS idx_recipe_pending_ingredients_recipe_id ON recipe_pending_ingredients(recipe_id)');
     await pool.query('CREATE INDEX IF NOT EXISTS idx_recipe_pending_ingredients_request_id ON recipe_pending_ingredients(ingredient_request_id)');
 
-    if (process.env.NODE_ENV !== 'test') {
+    // Soft-delete support for recipes (incremental upgrade)
+    await pool.query('ALTER TABLE recipes ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recipes_deleted_at ON recipes(deleted_at)');
+
+    // Collections (private saved + public playlists) incremental upgrade
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS recipe_collections (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        description TEXT,
+        is_public BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, name)
+      );
+    `);
+    // If table existed from an older schema, ensure newer columns/indexes exist.
+    await pool.query('ALTER TABLE recipe_collections ADD COLUMN IF NOT EXISTS description TEXT');
+    await pool.query('ALTER TABLE recipe_collections ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE');
+    await pool.query('ALTER TABLE recipe_collections ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    await pool.query('ALTER TABLE recipe_collections ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recipe_collections_user_id ON recipe_collections(user_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recipe_collections_is_public ON recipe_collections(is_public)');
+    // Use a unique index (works even if the original UNIQUE constraint wasn't present).
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_recipe_collections_user_name ON recipe_collections(user_id, name)');
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS collection_recipes (
+        id SERIAL PRIMARY KEY,
+        collection_id INTEGER NOT NULL REFERENCES recipe_collections(id) ON DELETE CASCADE,
+        recipe_id INTEGER REFERENCES recipes(id) ON DELETE CASCADE,
+        ai_key VARCHAR(64),
+        ai_recipe JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CHECK (
+          (recipe_id IS NOT NULL AND ai_recipe IS NULL AND ai_key IS NULL)
+          OR
+          (recipe_id IS NULL AND ai_recipe IS NOT NULL AND ai_key IS NOT NULL)
+        )
+      );
+    `);
+    // If table existed from an older schema, ensure newer columns exist.
+    await pool.query('ALTER TABLE collection_recipes ADD COLUMN IF NOT EXISTS ai_key VARCHAR(64)');
+    await pool.query('ALTER TABLE collection_recipes ADD COLUMN IF NOT EXISTS ai_recipe JSONB');
+    await pool.query('ALTER TABLE collection_recipes ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    // Legacy schema may have enforced recipe_id NOT NULL; allow AI-only rows.
+    await pool.query('ALTER TABLE collection_recipes ALTER COLUMN recipe_id DROP NOT NULL');
+    // Add/ensure the check constraint exists; if legacy data violates it, skip rather than breaking startup.
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'collection_recipes_item_check'
+        ) THEN
+          BEGIN
+            ALTER TABLE collection_recipes
+              ADD CONSTRAINT collection_recipes_item_check
+              CHECK (
+                (recipe_id IS NOT NULL AND ai_recipe IS NULL AND ai_key IS NULL)
+                OR
+                (recipe_id IS NULL AND ai_recipe IS NOT NULL AND ai_key IS NOT NULL)
+              );
+          EXCEPTION
+            WHEN others THEN
+              -- ignore (e.g., legacy rows violate constraint)
+              NULL;
+          END;
+        END IF;
+      END $$;
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_collection_recipes_collection_id ON collection_recipes(collection_id)');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_collection_recipes_recipe_id ON collection_recipes(recipe_id)');
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_collection_recipes_recipe ON collection_recipes(collection_id, recipe_id) WHERE recipe_id IS NOT NULL');
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_collection_recipes_ai ON collection_recipes(collection_id, ai_key) WHERE ai_key IS NOT NULL');
+
+    if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
       console.log('✓ Database already initialized');
     }
   } catch (error) {
     // Tables don't exist - initialize database
-    console.log('⚙️  Database not initialized, setting up...');
-    console.log('   Creating tables and loading demo data...');
+    if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
+      console.log('⚙️  Database not initialized, setting up...');
+      console.log('   Creating tables and loading demo data...');
+    }
     
     const fs = require('fs');
     const initPath = path.join(__dirname, 'src/db/init.js');
@@ -112,13 +193,15 @@ async function initializeDatabaseIfNeeded() {
         // Run initialization script in silent mode (no interactive prompts)
         const { initializeDatabase } = require('./src/db/init.js');
         await initializeDatabase(true); // true = silent mode
-        console.log('✓ Database initialized with demo data');
-        console.log('');
-        console.log('🔐 Demo Login Credentials:');
-        console.log('   User:  john.doe@example.com / password123');
-        console.log('   Chef:  chef.maria@example.com / password123');
-        console.log('   Admin: admin@recifind.com / password123');
-        console.log('');
+        if (process.env.NODE_ENV !== 'test' && !process.env.JEST_WORKER_ID) {
+          console.log('✓ Database initialized with demo data');
+          console.log('');
+          console.log('🔐 Demo Login Credentials:');
+          console.log('   User:  john.doe@example.com / password123');
+          console.log('   Chef:  chef.maria@example.com / password123');
+          console.log('   Admin: admin@recifind.com / password123');
+          console.log('');
+        }
       } catch (initError) {
         console.error('❌ Database initialization failed:', initError.message);
         console.error('   The application may not work correctly.');
@@ -134,6 +217,32 @@ async function initializeDatabaseIfNeeded() {
 const initPromise = initializeDatabaseIfNeeded().catch(err => {
   console.error('❌ Database check error:', err.message);
 });
+
+async function purgeSoftDeletedRecipes() {
+  // Permanently delete recipes that were soft-deleted more than SOFT_DELETE_DAYS ago.
+  // Cascading FKs will remove related rows.
+  if (!Number.isFinite(SOFT_DELETE_DAYS) || SOFT_DELETE_DAYS <= 0) return;
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM recipes
+       WHERE deleted_at IS NOT NULL
+         AND deleted_at < (CURRENT_TIMESTAMP - ($1 || ' days')::interval)`,
+      [String(SOFT_DELETE_DAYS)]
+    );
+
+    if (process.env.NODE_ENV !== 'test' && result.rowCount > 0) {
+      console.log(`🧹 Purged ${result.rowCount} soft-deleted recipe(s)`);
+    }
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'test') {
+      console.error('Error purging soft-deleted recipes:', error);
+    }
+  }
+}
+
+// Run purge on startup + periodically (no-op in tests)
+// Note: scheduling is done only when this module is run directly.
 
 // API Routes
 
@@ -157,6 +266,14 @@ app.use('/api/admin', adminRoutes);
 const reportRoutes = require('./src/routes/reports');
 app.use('/api/reports', reportRoutes);
 
+// Ingredient routes (list + user requests)
+const ingredientRoutes = require('./src/routes/ingredients');
+app.use('/api/ingredients', ingredientRoutes);
+
+// Recipe collections (private saved + public playlists)
+const collectionRoutes = require('./src/routes/collections');
+app.use('/api/collections', collectionRoutes);
+
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
   try {
@@ -175,18 +292,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Get all ingredients
-app.get('/api/ingredients', async (req, res) => {
-  try {
-    const result = await pool.query(
-      'SELECT * FROM ingredients ORDER BY name ASC'
-    );
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching ingredients:', error);
-    res.status(500).json({ error: 'Failed to fetch ingredients' });
-  }
-});
+// (moved to src/routes/ingredients.js)
 
 // Serve static files from React build in production
 if (process.env.NODE_ENV === 'production') {
@@ -202,6 +308,11 @@ if (process.env.NODE_ENV === 'production') {
 // Check if this file is being run directly (not required by another module)
 if (require.main === module) {
   initPromise.finally(() => {
+    if (process.env.NODE_ENV !== 'test') {
+      purgeSoftDeletedRecipes();
+      setInterval(() => purgeSoftDeletedRecipes(), 60 * 60 * 1000);
+    }
+
     app.listen(PORT, '0.0.0.0', () => {
       console.log('');
       console.log('======================================');

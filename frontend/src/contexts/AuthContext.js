@@ -72,6 +72,27 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const refreshSession = async () => {
+    try {
+      const response = await api.post('/api/auth/refresh');
+      const { token, user: refreshedUser } = response.data;
+
+      if (token) {
+        localStorage.setItem('token', token);
+      }
+      if (refreshedUser) {
+        setUser(refreshedUser);
+      }
+
+      return { success: true, user: refreshedUser };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Failed to refresh session',
+      };
+    }
+  };
+
   const updateUser = (updatedUser) => {
     setUser(updatedUser);
   };
@@ -83,6 +104,7 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     updateUser,
+    refreshSession,
     isAuthenticated: !!user,
   };
 

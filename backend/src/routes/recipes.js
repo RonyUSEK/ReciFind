@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, authenticateOptional, requireRole } = require('../middleware/auth');
 const { aiGenerationLimiter, AI_DAILY_LIMIT } = require('../middleware/rateLimiter');
 const { generateRecipe } = require('../services/recipeGenerator');
 const { isConfigured } = require('../services/openai');
@@ -84,7 +84,7 @@ router.get('/search', async (req, res) => {
     const offset = (pageNum - 1) * limitNum;
 
     // Build WHERE conditions
-    let conditions = ['r.status = $1']; // Only approved recipes
+    let conditions = ['r.status = $1', 'r.deleted_at IS NULL']; // Only approved + not deleted
     let params = ['approved'];
     let paramCount = 1;
 
@@ -267,7 +267,7 @@ router.get('/search', async (req, res) => {
         const suggestionQuery = `
           SELECT title, similarity(LOWER(title), LOWER($1)) as sim
           FROM recipes 
-          WHERE status = 'approved'
+          WHERE status = 'approved' AND deleted_at IS NULL
           ORDER BY sim DESC
           LIMIT 1
         `;
@@ -354,7 +354,7 @@ router.get('/featured', async (req, res) => {
       SELECT r.*, u.name as chef_name
       FROM recipes r
       LEFT JOIN users u ON r.chef_id = u.id
-      WHERE r.is_featured = true AND r.status = 'approved'
+      WHERE r.is_featured = true AND r.status = 'approved' AND r.deleted_at IS NULL
       LIMIT 1
     `);
 
@@ -385,7 +385,7 @@ router.get('/popular', async (req, res) => {
       FROM recipes r
       LEFT JOIN users u ON r.chef_id = u.id
       LEFT JOIN likes l ON r.id = l.recipe_id
-      WHERE r.status = 'approved'
+      WHERE r.status = 'approved' AND r.deleted_at IS NULL
       GROUP BY r.id, u.name
       ORDER BY like_count DESC, r.created_at DESC
       LIMIT $1
@@ -411,7 +411,7 @@ router.get('/recent', async (req, res) => {
       SELECT r.*, u.name as chef_name
       FROM recipes r
       LEFT JOIN users u ON r.chef_id = u.id
-      WHERE r.status = 'approved'
+      WHERE r.status = 'approved' AND r.deleted_at IS NULL
       ORDER BY r.created_at DESC
       LIMIT $1
     `, [limit]);
@@ -608,7 +608,7 @@ router.get('/my', authenticate, requireRole(['chef', 'admin']), async (req, res)
       `SELECT r.*, u.name as chef_name
        FROM recipes r
        JOIN users u ON r.chef_id = u.id
-       WHERE r.chef_id = $1
+       WHERE r.chef_id = $1 AND r.deleted_at IS NULL
        ORDER BY r.created_at DESC`,
       [req.user.id]
     );
@@ -632,6 +632,7 @@ router.put('/:id', authenticate, requireRole(['chef', 'admin']), async (req, res
       title,
       description,
       instructions,
+      ingredients,
       prep_time,
       cook_time,
       servings,
@@ -639,12 +640,15 @@ router.put('/:id', authenticate, requireRole(['chef', 'admin']), async (req, res
       cuisine,
       spice_level,
       calories,
-      image_url
+      image_url,
+      resubmit
     } = req.body;
+
+    const normalizeName = (value) => String(value || '').trim().toLowerCase();
 
     // Check if recipe exists and belongs to user (unless admin)
     const checkResult = await pool.query(
-      'SELECT * FROM recipes WHERE id = $1',
+      'SELECT * FROM recipes WHERE id = $1 AND deleted_at IS NULL',
       [id]
     );
 
@@ -657,6 +661,103 @@ router.put('/:id', authenticate, requireRole(['chef', 'admin']), async (req, res
     // Check ownership (admin can edit any, chef can only edit own)
     if (req.user.role !== 'admin' && recipe.chef_id !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized to edit this recipe' });
+    }
+
+    // Chefs can only edit pending/rejected recipes (admins can edit any status)
+    if (req.user.role !== 'admin' && recipe.status === 'approved') {
+      return res.status(400).json({ error: 'Approved recipes cannot be edited. Only pending/rejected recipes are editable.' });
+    }
+
+    await pool.query('BEGIN');
+
+    // If ingredients are provided, update ingredient links + create moderated requests for unknown ingredients
+    const existingIngredientLinks = [];
+    const pendingIngredientLinks = [];
+
+    if (ingredients !== undefined) {
+      await pool.query('DELETE FROM recipe_ingredients WHERE recipe_id = $1', [id]);
+      await pool.query('DELETE FROM recipe_pending_ingredients WHERE recipe_id = $1', [id]);
+
+      if (Array.isArray(ingredients)) {
+        for (const ing of ingredients) {
+          const rawName = String(ing?.name || '').trim();
+          const normalized = normalizeName(rawName);
+          if (!normalized) continue;
+
+          const ingredientResult = await pool.query(
+            'SELECT id FROM ingredients WHERE LOWER(name) = $1',
+            [normalized]
+          );
+
+          if (ingredientResult.rows.length > 0) {
+            existingIngredientLinks.push({
+              ingredientId: ingredientResult.rows[0].id,
+              quantity: ing?.quantity || '',
+              unit: ing?.unit || ''
+            });
+            continue;
+          }
+
+          const requestResult = await pool.query(
+            `INSERT INTO ingredient_requests (requested_name, normalized_name, requested_by)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (normalized_name)
+             DO UPDATE SET requested_name = EXCLUDED.requested_name
+             RETURNING id, status`,
+            [rawName, normalized, req.user.id]
+          );
+
+          const request = requestResult.rows[0];
+          if (request.status === 'approved') {
+            const approvedIngredient = await pool.query(
+              'SELECT id FROM ingredients WHERE LOWER(name) = $1',
+              [normalized]
+            );
+
+            if (approvedIngredient.rows.length > 0) {
+              existingIngredientLinks.push({
+                ingredientId: approvedIngredient.rows[0].id,
+                quantity: ing?.quantity || '',
+                unit: ing?.unit || ''
+              });
+            } else {
+              pendingIngredientLinks.push({
+                requestId: request.id,
+                requestedName: rawName,
+                quantity: ing?.quantity || '',
+                unit: ing?.unit || ''
+              });
+            }
+          } else {
+            pendingIngredientLinks.push({
+              requestId: request.id,
+              requestedName: rawName,
+              quantity: ing?.quantity || '',
+              unit: ing?.unit || ''
+            });
+          }
+        }
+      }
+
+      for (const link of existingIngredientLinks) {
+        await pool.query(
+          `INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (recipe_id, ingredient_id)
+           DO UPDATE SET quantity = EXCLUDED.quantity, unit = EXCLUDED.unit`,
+          [id, link.ingredientId, link.quantity, link.unit]
+        );
+      }
+
+      for (const pending of pendingIngredientLinks) {
+        await pool.query(
+          `INSERT INTO recipe_pending_ingredients (recipe_id, ingredient_request_id, requested_name, quantity, unit)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (recipe_id, ingredient_request_id)
+           DO UPDATE SET requested_name = EXCLUDED.requested_name, quantity = EXCLUDED.quantity, unit = EXCLUDED.unit`,
+          [id, pending.requestId, pending.requestedName, pending.quantity, pending.unit]
+        );
+      }
     }
 
     // Build update query dynamically
@@ -709,6 +810,15 @@ router.put('/:id', authenticate, requireRole(['chef', 'admin']), async (req, res
       values.push(image_url);
     }
 
+    // Resubmit rejected recipe for approval after modifications
+    if (resubmit === true && recipe.status === 'rejected') {
+      updates.push(`status = $${paramCount++}`);
+      values.push('pending');
+    }
+
+    // Always update updated_at when editing
+    updates.push(`updated_at = CURRENT_TIMESTAMP`);
+
     if (updates.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
@@ -719,8 +829,22 @@ router.put('/:id', authenticate, requireRole(['chef', 'admin']), async (req, res
       values
     );
 
-    res.json(updateResult.rows[0]);
+    await pool.query('COMMIT');
+
+    const updated = updateResult.rows[0];
+    if (ingredients !== undefined) {
+      updated.pending_ingredients = pendingIngredientLinks.map(p => p.requestedName);
+      updated.pending_ingredient_count = pendingIngredientLinks.length;
+    }
+
+    res.json(updated);
   } catch (error) {
+    try {
+      const pool = req.app.locals.pool;
+      await pool.query('ROLLBACK');
+    } catch (_) {
+      // ignore
+    }
     console.error('Error updating recipe:', error);
     res.status(500).json({ error: 'Failed to update recipe' });
   }
@@ -737,7 +861,7 @@ router.delete('/:id', authenticate, requireRole(['chef', 'admin']), async (req, 
 
     // Check if recipe exists and belongs to user (unless admin)
     const checkResult = await pool.query(
-      'SELECT * FROM recipes WHERE id = $1',
+      'SELECT * FROM recipes WHERE id = $1 AND deleted_at IS NULL',
       [id]
     );
 
@@ -752,10 +876,19 @@ router.delete('/:id', authenticate, requireRole(['chef', 'admin']), async (req, 
       return res.status(403).json({ error: 'Not authorized to delete this recipe' });
     }
 
-    // Delete recipe (cascading will handle related records)
-    await pool.query('DELETE FROM recipes WHERE id = $1', [id]);
+    // Soft-delete: keep row for a grace period before purging
+    await pool.query(
+      `UPDATE recipes
+       SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
+    );
 
-    res.json({ message: 'Recipe deleted successfully' });
+    const days = parseInt(process.env.RECIPE_SOFT_DELETE_DAYS || '7', 10);
+    res.json({
+      message: 'Recipe deleted. It will be permanently removed after the retention period.',
+      retention_days: Number.isFinite(days) ? days : 7,
+    });
   } catch (error) {
     console.error('Error deleting recipe:', error);
     res.status(500).json({ error: 'Failed to delete recipe' });
@@ -766,12 +899,17 @@ router.delete('/:id', authenticate, requireRole(['chef', 'admin']), async (req, 
  * GET /api/recipes/:id
  * Get single recipe by ID with full details
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticateOptional, async (req, res) => {
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
 
-    // Get recipe details
+    // Note: Authentication is optional for this endpoint.
+    // Approved recipes are public. Pending/rejected recipes are visible to:
+    // - admins
+    // - the owning chef
+
+    // Get recipe details (any status); enforce visibility in code below.
     const recipeResult = await pool.query(`
       SELECT r.*, 
              u.name as chef_name,
@@ -783,7 +921,7 @@ router.get('/:id', async (req, res) => {
       LEFT JOIN users u ON r.chef_id = u.id
       LEFT JOIN likes l ON r.id = l.recipe_id
       LEFT JOIN comments c ON r.id = c.recipe_id
-      WHERE r.id = $1 AND r.status = 'approved'
+      WHERE r.id = $1 AND r.deleted_at IS NULL
       GROUP BY r.id, u.name, u.id
     `, [id]);
 
@@ -791,7 +929,20 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Recipe not found' });
     }
 
-    // Get ingredients
+    const recipe = recipeResult.rows[0];
+
+    // Enforce access for non-approved recipes
+    if (recipe.status !== 'approved') {
+      const requester = req.user;
+      const isAdmin = requester?.role === 'admin';
+      const isOwner = requester && recipe.chef_id && requester.id === recipe.chef_id;
+
+      if (!isAdmin && !isOwner) {
+        return res.status(404).json({ error: 'Recipe not found' });
+      }
+    }
+
+    // Get ingredients (approved/linked ingredients)
     const ingredientsResult = await pool.query(`
       SELECT i.name, ri.quantity, ri.unit
       FROM recipe_ingredients ri
@@ -799,9 +950,29 @@ router.get('/:id', async (req, res) => {
       WHERE ri.recipe_id = $1
       ORDER BY ri.id
     `, [id]);
-
-    const recipe = recipeResult.rows[0];
     recipe.ingredients = ingredientsResult.rows;
+
+    // Get pending ingredient requests (for pending recipes blocked on moderation)
+    const pendingIngredientsResult = await pool.query(
+      `SELECT ir.requested_name
+       FROM recipe_pending_ingredients rpi
+       JOIN ingredient_requests ir ON rpi.ingredient_request_id = ir.id
+       WHERE rpi.recipe_id = $1
+       ORDER BY rpi.id`,
+      [id]
+    );
+    recipe.pending_ingredients = pendingIngredientsResult.rows.map(r => r.requested_name);
+
+    // Latest admin review feedback (useful for rejected recipes)
+    const latestReview = await pool.query(
+      `SELECT status, feedback, reviewed_at
+       FROM recipe_approvals
+       WHERE recipe_id = $1
+       ORDER BY reviewed_at DESC
+       LIMIT 1`,
+      [id]
+    );
+    recipe.last_review = latestReview.rows[0] || null;
 
     res.json(recipe);
   } catch (error) {

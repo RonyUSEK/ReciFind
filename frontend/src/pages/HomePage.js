@@ -4,6 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../utils/api';
 import IngredientSearchBar from '../components/Common/IngredientSearchBar';
 import { resolveImageUrl } from '../utils/resolveImageUrl';
+import useToast from '../hooks/useToast';
+import Toast from '../components/Common/Toast';
 
 // --- MOCK DATA ---
 const mockIngredients = ['Beef', 'Cheese', 'Eggs', 'Potatoes', 'Veggies'];
@@ -146,6 +148,8 @@ const RecipeCard = React.memo(({ recipe, onClick }) => {
 
 const HomePage = ({ theme, toggleTheme }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast, showToast, hideToast } = useToast();
   const [activeIngredients, setActiveIngredients] = useState(new Map());
   const [searchTerm, setSearchTerm] = useState('');
   const [searchMode, setSearchMode] = useState('ingredients'); // 'ingredients' or 'name'
@@ -157,6 +161,8 @@ const HomePage = ({ theme, toggleTheme }) => {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState('all');
   const [featuredImageLoaded, setFeaturedImageLoaded] = useState(false);
+
+  const [ingredientSuggestions, setIngredientSuggestions] = useState([]);
 
   // Fetch recipes on mount
   useEffect(() => {
@@ -187,6 +193,56 @@ const HomePage = ({ theme, toggleTheme }) => {
     
     fetchRecipes();
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .get('/api/ingredients')
+      .then((res) => {
+        if (!alive) return;
+        const names = (res.data || []).map((i) => i?.name).filter(Boolean);
+        setIngredientSuggestions(names);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setIngredientSuggestions([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const requestIngredient = async (name) => {
+    const canonicalName = String(name || '').trim();
+    if (!canonicalName) return;
+
+    if (!user) {
+      showToast('Please log in to request ingredients.', 'error');
+      navigate('/login');
+      return;
+    }
+
+    try {
+      const res = await api.post('/api/ingredients/requests', { name: canonicalName });
+      const status = res.data?.status;
+      const message = res.data?.message || 'Request submitted.';
+
+      if (status === 'pending') {
+        showToast(message, 'success');
+      } else if (status === 'exists' || status === 'approved') {
+        showToast(message, 'warning');
+      } else {
+        showToast(message, 'success');
+      }
+    } catch (err) {
+      if (err.response?.status === 401) {
+        showToast('Please log in to request ingredients.', 'error');
+        navigate('/login');
+        return;
+      }
+      showToast(err.response?.data?.error || 'Failed to submit ingredient request', 'error');
+    }
+  };
 
   // Memoized filtered recipes for performance
   const filteredRecipes = useMemo(() => {
@@ -370,8 +426,10 @@ const HomePage = ({ theme, toggleTheme }) => {
               ))}
               inputValue={searchTerm}
               setInputValue={setSearchTerm}
-              allSuggestions={allAutofillSuggestions}
+              allSuggestions={ingredientSuggestions.length > 0 ? ingredientSuggestions : allAutofillSuggestions}
               onAdd={handleAddIngredient}
+              onRequest={requestIngredient}
+              requestLabel="Request admin to add"
               onEnterWhenEmpty={() => {
                 if (activeIngredients.size > 0) handleSearch();
               }}
@@ -673,6 +731,8 @@ const HomePage = ({ theme, toggleTheme }) => {
           <p className="text-gray-500 dark:text-gray-400 text-center py-8">No recent recipes found.</p>
         )}
       </section>
+
+      <Toast show={toast.show} message={toast.message} type={toast.type} onClose={hideToast} />
     </main>
   );
 };

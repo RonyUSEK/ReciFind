@@ -3,14 +3,31 @@ import { useParams, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import ReportButton from '../components/Report/ReportButton';
 import { resolveImageUrl } from '../utils/resolveImageUrl';
+import { useAuth } from '../contexts/AuthContext';
+import useToast from '../hooks/useToast';
+import Toast from '../components/Common/Toast';
 
 const RecipeDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { toast, showToast, hideToast } = useToast();
   const [recipe, setRecipe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [imageLoaded, setImageLoaded] = useState(false);
+
+  const [isSaved, setIsSaved] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [collections, setCollections] = useState([]);
+  const [selectedCollectionId, setSelectedCollectionId] = useState('');
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
+
+  const [isInSelectedCollection, setIsInSelectedCollection] = useState(false);
+  const [checkingSelectedCollection, setCheckingSelectedCollection] = useState(false);
+
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const [createCollectionLoading, setCreateCollectionLoading] = useState(false);
 
   useEffect(() => {
     const fetchRecipe = async () => {
@@ -36,6 +53,149 @@ const RecipeDetailPage = () => {
 
     fetchRecipe();
   }, [id]);
+
+  useEffect(() => {
+    const fetchSaveAndCollections = async () => {
+      if (!user || !recipe?.id) return;
+
+      try {
+        setCollectionsLoading(true);
+
+        const [savedRes, collectionsRes] = await Promise.all([
+          api.get('/api/collections/saved/status', { params: { recipeId: recipe.id } }),
+          api.get('/api/collections/my'),
+        ]);
+
+        setIsSaved(Boolean(savedRes.data?.saved));
+        const list = collectionsRes.data?.collections || [];
+        setCollections(list);
+
+        // Default selection: first non-Saved collection (if any)
+        const first = list.find((c) => String(c.name || '').toLowerCase() !== 'saved');
+        setSelectedCollectionId(first ? String(first.id) : '');
+      } catch (err) {
+        // Non-fatal
+      } finally {
+        setCollectionsLoading(false);
+      }
+    };
+
+    fetchSaveAndCollections();
+  }, [user, recipe?.id]);
+
+  useEffect(() => {
+    const checkSelectedCollection = async () => {
+      if (!user || !recipe?.id) return;
+
+      if (!selectedCollectionId || selectedCollectionId === '__new__') {
+        setIsInSelectedCollection(false);
+        return;
+      }
+
+      const collectionId = parseInt(selectedCollectionId, 10);
+      if (!Number.isFinite(collectionId)) {
+        setIsInSelectedCollection(false);
+        return;
+      }
+
+      try {
+        setCheckingSelectedCollection(true);
+        const res = await api.get(`/api/collections/${collectionId}/items`);
+        const items = res.data?.items || [];
+        const exists = items.some((i) => Number(i.recipe_id) === Number(recipe.id));
+        setIsInSelectedCollection(Boolean(exists));
+      } catch (err) {
+        setIsInSelectedCollection(false);
+      } finally {
+        setCheckingSelectedCollection(false);
+      }
+    };
+
+    checkSelectedCollection();
+  }, [user, recipe?.id, selectedCollectionId]);
+
+  const handleToggleSave = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    if (!recipe?.id || saveLoading) return;
+
+    try {
+      setSaveLoading(true);
+      const res = await api.post('/api/collections/saved/toggle', { recipeId: recipe.id });
+      const saved = Boolean(res.data?.saved);
+      setIsSaved(saved);
+      showToast(saved ? 'Saved!' : 'Removed from saved', saved ? 'success' : 'info');
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to save recipe', 'error');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleAddToCollection = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    if (selectedCollectionId === '__new__') {
+      showToast('Create the collection first', 'error');
+      return;
+    }
+
+    const collectionId = parseInt(selectedCollectionId, 10);
+    if (!Number.isFinite(collectionId) || !recipe?.id) {
+      showToast('Select a collection first', 'error');
+      return;
+    }
+
+    if (isInSelectedCollection) {
+      showToast('Already in this collection', 'info');
+      return;
+    }
+
+    try {
+      await api.post(`/api/collections/${collectionId}/items`, { recipeId: recipe.id });
+      setIsInSelectedCollection(true);
+      showToast('Added to collection', 'success');
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to add to collection', 'error');
+    }
+  };
+
+  const handleCreateCollection = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    const name = String(newCollectionName || '').trim();
+    if (!name) {
+      showToast('Enter a collection name', 'error');
+      return;
+    }
+
+    try {
+      setCreateCollectionLoading(true);
+      const res = await api.post('/api/collections', { name, isPublic: false });
+      const created = res.data?.collection;
+      if (created?.id) {
+        setCollections((prev) => [...(prev || []), created]);
+        setSelectedCollectionId(String(created.id));
+        setNewCollectionName('');
+        showToast('Collection created', 'success');
+      } else {
+        showToast('Collection created', 'success');
+      }
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to create collection', 'error');
+    } finally {
+      setCreateCollectionLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -89,6 +249,10 @@ const RecipeDetailPage = () => {
   const likeCount = parseInt(recipe.likes || '0');
   const dislikeCount = parseInt(recipe.dislikes || '0');
 
+  const canSeeModerationInfo =
+    !!user &&
+    (user.role === 'admin' || (user.role === 'chef' && recipe.chef_id === user.id));
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-4 sm:py-8">
       <div className="w-full px-3 sm:px-4 lg:max-w-6xl lg:mx-auto">
@@ -104,6 +268,20 @@ const RecipeDetailPage = () => {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
           {/* Recipe Header */}
           <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700">
+            {canSeeModerationInfo && recipe.status === 'rejected' && (
+              <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                <p className="font-semibold text-red-900 dark:text-red-200">This recipe was rejected.</p>
+                <p className="text-sm text-red-800 dark:text-red-300">
+                  Edit it and resubmit from your chef dashboard to get it approved.
+                </p>
+                {recipe.last_review?.feedback && (
+                  <p className="mt-2 text-sm text-red-800 dark:text-red-300">
+                    <span className="font-semibold">Admin feedback:</span> {recipe.last_review.feedback}
+                  </p>
+                )}
+              </div>
+            )}
+
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-gray-100 mb-3">
               {recipe.title}
             </h1>
@@ -144,14 +322,86 @@ const RecipeDetailPage = () => {
 
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-3 mb-4">
-              <button className="w-full sm:w-auto justify-center flex items-center gap-2 px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 
-                               text-white rounded-lg transition-colors text-sm sm:text-base">
-                <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <button
+                onClick={handleToggleSave}
+                disabled={saveLoading}
+                className="w-full sm:w-auto justify-center flex items-center gap-2 px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 
+                               disabled:opacity-60 text-white rounded-lg transition-colors text-sm sm:text-base"
+              >
+                <svg
+                  className="w-4 h-4 sm:w-5 sm:h-5"
+                  fill={isSaved ? 'currentColor' : 'none'}
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
                         d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                 </svg>
-                Save
+                {isSaved ? 'Saved' : 'Save'}
               </button>
+
+              {user ? (
+                <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={selectedCollectionId}
+                    onChange={(e) => setSelectedCollectionId(e.target.value)}
+                    disabled={collectionsLoading}
+                    className="w-full sm:w-56 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    aria-label="Select collection"
+                  >
+                    <option value="">Select collection</option>
+                    {collections
+                      .filter((c) => String(c.name || '').toLowerCase() !== 'saved')
+                      .map((c) => (
+                        <option key={c.id} value={String(c.id)}>
+                          {c.name}{c.is_public ? ' (Public)' : ''}
+                        </option>
+                      ))}
+                    <option value="__new__">+ Create new collection…</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleAddToCollection}
+                    disabled={!selectedCollectionId || selectedCollectionId === '__new__' || collectionsLoading || checkingSelectedCollection || isInSelectedCollection}
+                    className={`w-full sm:w-auto justify-center flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-colors text-sm sm:text-base disabled:opacity-60 ${
+                      isInSelectedCollection
+                        ? 'bg-green-600 text-white'
+                        : 'border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    {isInSelectedCollection ? (
+                      <>
+                        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Added
+                      </>
+                    ) : (
+                      'Add to Collection'
+                    )}
+                  </button>
+
+                  {selectedCollectionId === '__new__' ? (
+                    <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+                      <input
+                        value={newCollectionName}
+                        onChange={(e) => setNewCollectionName(e.target.value)}
+                        placeholder="New collection name"
+                        className="w-full sm:w-56 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateCollection}
+                        disabled={createCollectionLoading}
+                        className="w-full sm:w-auto justify-center flex items-center px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white rounded-lg transition-colors text-sm sm:text-base"
+                      >
+                        Create
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               <button className="w-full sm:w-auto justify-center flex items-center gap-2 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 
                                hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 
                                rounded-lg transition-colors text-sm sm:text-base">
@@ -294,6 +544,8 @@ const RecipeDetailPage = () => {
           </button>
         </div>
       </div>
+
+      <Toast show={toast.show} message={toast.message} type={toast.type} onClose={hideToast} />
     </div>
   );
 };

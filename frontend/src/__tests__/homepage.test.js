@@ -62,6 +62,7 @@ describe('HomePage Recipe Discovery', () => {
       api.get.mockResolvedValueOnce({ data: mockFeaturedRecipe });
       api.get.mockResolvedValueOnce({ data: [] }); // popular
       api.get.mockResolvedValueOnce({ data: [] }); // recent
+      api.get.mockResolvedValueOnce({ data: [] }); // ingredients
 
       render(<HomePage />, { wrapper: TestWrapper });
 
@@ -88,6 +89,7 @@ describe('HomePage Recipe Discovery', () => {
       api.get.mockRejectedValueOnce(new Error('Network error'));
       api.get.mockResolvedValueOnce({ data: [] }); // popular
       api.get.mockResolvedValueOnce({ data: [] }); // recent
+      api.get.mockResolvedValueOnce({ data: [] }); // ingredients
 
       render(<HomePage />, { wrapper: TestWrapper });
 
@@ -125,6 +127,7 @@ describe('HomePage Recipe Discovery', () => {
       api.get.mockResolvedValueOnce({ data: { id: 99, title: 'Featured Recipe' } });
       api.get.mockResolvedValueOnce({ data: mockPopularRecipes });
       api.get.mockResolvedValueOnce({ data: [] }); // recent recipes
+      api.get.mockResolvedValueOnce({ data: [] }); // ingredients
 
       render(<HomePage />, { wrapper: TestWrapper });
 
@@ -143,6 +146,7 @@ describe('HomePage Recipe Discovery', () => {
       api.get.mockResolvedValueOnce({ data: null }); // featured
       api.get.mockResolvedValueOnce({ data: [] }); // popular
       api.get.mockResolvedValueOnce({ data: [] }); // recent
+      api.get.mockResolvedValueOnce({ data: [] }); // ingredients
 
       render(<HomePage />, { wrapper: TestWrapper });
 
@@ -180,6 +184,7 @@ describe('HomePage Recipe Discovery', () => {
       api.get.mockResolvedValueOnce({ data: { id: 99, title: 'Featured' } });
       api.get.mockResolvedValueOnce({ data: [] }); // popular
       api.get.mockResolvedValueOnce({ data: mockRecentRecipes });
+      api.get.mockResolvedValueOnce({ data: [] }); // ingredients
 
       render(<HomePage />, { wrapper: TestWrapper });
 
@@ -197,6 +202,7 @@ describe('HomePage Recipe Discovery', () => {
       api.get.mockResolvedValueOnce({ data: null }); // featured
       api.get.mockResolvedValueOnce({ data: [] }); // popular
       api.get.mockResolvedValueOnce({ data: [] }); // recent
+      api.get.mockResolvedValueOnce({ data: [] }); // ingredients
 
       render(<HomePage />, { wrapper: TestWrapper });
 
@@ -242,6 +248,7 @@ describe('HomePage Recipe Discovery', () => {
       api.get.mockResolvedValueOnce({ data: null }); // featured
       api.get.mockResolvedValueOnce({ data: mockRecipes }); // popular
       api.get.mockResolvedValueOnce({ data: [] }); // recent
+      api.get.mockResolvedValueOnce({ data: [] }); // ingredients
 
       render(<HomePage />, { wrapper: TestWrapper });
 
@@ -285,6 +292,7 @@ describe('HomePage Recipe Discovery', () => {
       api.get.mockResolvedValueOnce({ data: null }); // featured
       api.get.mockResolvedValueOnce({ data: mockRecipes }); // popular
       api.get.mockResolvedValueOnce({ data: [] }); // recent
+      api.get.mockResolvedValueOnce({ data: [] }); // ingredients
 
       render(<HomePage />, { wrapper: TestWrapper });
 

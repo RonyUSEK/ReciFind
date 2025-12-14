@@ -16,6 +16,10 @@ import Dashboard from './pages/Dashboard';
 import ChefDashboard from './pages/ChefDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import RecipeDetailPage from './pages/RecipeDetailPage';
+import ProfilePage from './pages/ProfilePage';
+import AISavedRecipePage from './pages/AISavedRecipePage';
+import SavedRecipesPage from './pages/SavedRecipesPage';
+import CollectionsPage from './pages/CollectionsPage';
 import RecipeForm from './components/Chef/RecipeForm';
 import ChefApplicationForm from './pages/ChefApplicationForm';
 import ApplicationStatus from './pages/ApplicationStatus';
@@ -248,10 +252,34 @@ const AppContent = () => {
           <RecipeDetailPage />
         </Layout>
       } />
+      <Route path="/profile/:id" element={
+        <Layout theme={theme} toggleTheme={toggleTheme}>
+          <ProfilePage />
+        </Layout>
+      } />
+      <Route path="/ai/:itemId" element={
+        <Layout theme={theme} toggleTheme={toggleTheme}>
+          <AISavedRecipePage />
+        </Layout>
+      } />
       <Route path="/dashboard" element={
         <ProtectedRoute>
           <Layout theme={theme} toggleTheme={toggleTheme}>
             <Dashboard />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/saved" element={
+        <ProtectedRoute>
+          <Layout theme={theme} toggleTheme={toggleTheme}>
+            <SavedRecipesPage />
+          </Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/collections" element={
+        <ProtectedRoute>
+          <Layout theme={theme} toggleTheme={toggleTheme}>
+            <CollectionsPage />
           </Layout>
         </ProtectedRoute>
       } />

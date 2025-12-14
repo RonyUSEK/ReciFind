@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 function ApplicationStatus() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user, refreshSession } = useAuth();
   const [application, setApplication] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -117,18 +119,43 @@ function ApplicationStatus() {
 
           {application.status === 'approved' && (
             <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-6">
-              <h3 className="font-semibold text-green-900 dark:text-green-300 mb-2">
-                🎉 Congratulations!
-              </h3>
-              <p className="text-sm text-green-800 dark:text-green-400 mb-3">
-                Your chef application has been approved! You can now start submitting your recipes.
-              </p>
-              <button
-                onClick={() => navigate('/chef/dashboard')}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium text-sm"
-              >
-                Go to Chef Dashboard
-              </button>
+              {user?.role === 'user' ? (
+                <>
+                  <h3 className="font-semibold text-green-900 dark:text-green-300 mb-2">
+                    Application approved (access removed)
+                  </h3>
+                  <p className="text-sm text-green-800 dark:text-green-400 mb-2">
+                    Your application shows as approved, but your account is currently a normal user.
+                  </p>
+                  <p className="text-xs text-green-800/80 dark:text-green-200/80 mb-3">
+                    You were demoted back to user. You can submit a new chef application.
+                  </p>
+                  <button
+                    onClick={() => navigate('/apply-chef')}
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium text-sm"
+                  >
+                    Apply Again
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h3 className="font-semibold text-green-900 dark:text-green-300 mb-2">
+                    🎉 Congratulations!
+                  </h3>
+                  <p className="text-sm text-green-800 dark:text-green-400 mb-3">
+                    Your chef application has been approved! You can now start submitting your recipes.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      await refreshSession();
+                      navigate('/chef/dashboard');
+                    }}
+                    className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium text-sm"
+                  >
+                    Go to Chef Dashboard
+                  </button>
+                </>
+              )}
             </div>
           )}
 

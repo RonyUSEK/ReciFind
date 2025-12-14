@@ -38,6 +38,9 @@ logs/
 coverage/
 out/
 
+# Local uploads
+backend/uploads/
+
 # Misc
 .cache/
 docs/
