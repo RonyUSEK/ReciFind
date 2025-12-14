@@ -44,3 +44,4 @@ backend/uploads/
 # Misc
 .cache/
 docs/
+.github/instructions/
