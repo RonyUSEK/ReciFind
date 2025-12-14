@@ -13,7 +13,6 @@ function ReportManagement() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('pending'); // pending, resolved, dismissed, all
-  const [contentTypeFilter, setContentTypeFilter] = useState('all'); // all, recipe, comment
   const [selectedReport, setSelectedReport] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [stats, setStats] = useState(null);
@@ -27,7 +26,7 @@ function ReportManagement() {
   useEffect(() => {
     fetchReports();
     fetchStats();
-  }, [filter, contentTypeFilter]);
+  }, [filter]);
 
   const fetchReports = async () => {
     try {
@@ -37,7 +36,6 @@ function ReportManagement() {
       
       const params = new URLSearchParams();
       if (filter !== 'all') params.append('status', filter);
-      if (contentTypeFilter !== 'all') params.append('content_type', contentTypeFilter);
       
       if (params.toString()) {
         url += '?' + params.toString();
@@ -224,7 +222,7 @@ function ReportManagement() {
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Total Reports</div>
@@ -236,10 +234,6 @@ function ReportManagement() {
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
             <div className="text-2xl font-bold text-gray-900 dark:text-white">{stats.recipe_reports}</div>
             <div className="text-sm text-gray-600 dark:text-gray-400">Recipe Reports</div>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">{stats.comment_reports}</div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">Comment Reports</div>
           </div>
         </div>
       )}
@@ -261,21 +255,6 @@ function ReportManagement() {
               <option value="pending">Pending</option>
               <option value="resolved">Resolved</option>
               <option value="dismissed">Dismissed</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Content Type
-            </label>
-            <select
-              value={contentTypeFilter}
-              onChange={(e) => setContentTypeFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg
-                       bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="all">All Types</option>
-              <option value="recipe">Recipes</option>
-              <option value="comment">Comments</option>
             </select>
           </div>
         </div>
@@ -352,15 +331,6 @@ function ReportManagement() {
                              disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     Dismiss Report
-                  </button>
-                  <button
-                    onClick={() => handleResolveReport(report.id, 'warn_user', 'Warn User')}
-                    disabled={actionLoading}
-                    className="px-4 py-2 text-sm bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/30 
-                             dark:hover:bg-yellow-900/50 text-yellow-800 dark:text-yellow-400 rounded-lg
-                             disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Warn User
                   </button>
                   <button
                     onClick={() => handleResolveReport(report.id, 'remove_content', 'Remove Content')}

@@ -17,22 +17,15 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: content_type, content_id, reason' });
     }
 
-    // Validate content_type
-    if (!['recipe', 'comment'].includes(content_type)) {
-      return res.status(400).json({ error: 'content_type must be "recipe" or "comment"' });
+    // Validate content_type (recipe-only)
+    if (content_type !== 'recipe') {
+      return res.status(400).json({ error: 'content_type must be "recipe"' });
     }
 
-    // Check if content exists
-    if (content_type === 'recipe') {
-      const recipeCheck = await pool.query('SELECT id FROM recipes WHERE id = $1', [content_id]);
-      if (recipeCheck.rows.length === 0) {
-        return res.status(404).json({ error: 'Recipe not found' });
-      }
-    } else if (content_type === 'comment') {
-      const commentCheck = await pool.query('SELECT id FROM comments WHERE id = $1', [content_id]);
-      if (commentCheck.rows.length === 0) {
-        return res.status(404).json({ error: 'Comment not found' });
-      }
+    // Check if recipe exists
+    const recipeCheck = await pool.query('SELECT id FROM recipes WHERE id = $1', [content_id]);
+    if (recipeCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Recipe not found' });
     }
 
     // Check if user already reported this content
@@ -72,14 +65,9 @@ router.get('/my', authenticate, async (req, res) => {
     const reporter_id = req.user.userId;
 
     const result = await pool.query(
-      `SELECT r.*, 
-              CASE 
-                WHEN r.content_type = 'recipe' THEN rec.title
-                WHEN r.content_type = 'comment' THEN LEFT(c.content, 100)
-              END as content_preview
+      `SELECT r.*, rec.title as content_preview
        FROM reports r
-       LEFT JOIN recipes rec ON r.content_type = 'recipe' AND r.content_id = rec.id
-       LEFT JOIN comments c ON r.content_type = 'comment' AND r.content_id = c.id
+       LEFT JOIN recipes rec ON r.content_id = rec.id
        WHERE r.reporter_id = $1
        ORDER BY r.created_at DESC`,
       [reporter_id]

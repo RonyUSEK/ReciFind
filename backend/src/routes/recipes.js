@@ -146,10 +146,21 @@ router.get('/search', async (req, res) => {
       params.push(spice.trim());
     }
 
+    const savesJoin = `
+      LEFT JOIN (
+        SELECT cr.recipe_id, COUNT(DISTINCT rc.user_id) AS save_count
+        FROM collection_recipes cr
+        JOIN recipe_collections rc ON cr.collection_id = rc.id
+        WHERE cr.recipe_id IS NOT NULL
+        GROUP BY cr.recipe_id
+      ) saves ON saves.recipe_id = r.id
+    `;
+
     // Build base query
     let baseQuery = `
       FROM recipes r
       LEFT JOIN users u ON r.chef_id = u.id
+      ${savesJoin}
     `;
 
     // Handle ingredient inclusion filter
@@ -161,6 +172,7 @@ router.get('/search', async (req, res) => {
         baseQuery = `
           FROM recipes r
           LEFT JOIN users u ON r.chef_id = u.id
+          ${savesJoin}
           INNER JOIN recipe_ingredients ri ON r.id = ri.recipe_id
           INNER JOIN ingredients i ON ri.ingredient_id = i.id
         `;
@@ -221,8 +233,8 @@ router.get('/search', async (req, res) => {
         orderBy = 'ORDER BY r.calories ASC';
         break;
       case 'rating':
-        // For now, sort by likes (can be enhanced later)
-        orderBy = 'ORDER BY r.id DESC'; // Placeholder
+        // Sort by popularity (unique users who saved the recipe)
+        orderBy = 'ORDER BY COALESCE(saves.save_count, 0) DESC, r.created_at DESC';
         break;
       case 'recent':
       default:
@@ -246,7 +258,8 @@ router.get('/search', async (req, res) => {
     const recipesQuery = `
       SELECT DISTINCT r.*, 
              u.name as chef_name,
-             (r.prep_time + r.cook_time) as total_time
+             (r.prep_time + r.cook_time) as total_time,
+             COALESCE(saves.save_count, 0) as save_count
       ${baseQuery}
       ${whereClause}
       ${orderBy}
@@ -371,7 +384,7 @@ router.get('/featured', async (req, res) => {
 
 /**
  * GET /api/recipes/popular
- * Get most liked recipes
+ * Get most saved recipes (popularity)
  */
 router.get('/popular', async (req, res) => {
   try {
@@ -381,13 +394,18 @@ router.get('/popular', async (req, res) => {
     const result = await pool.query(`
       SELECT r.*, 
              u.name as chef_name,
-             COUNT(l.id) FILTER (WHERE l.is_like = true) as like_count
+             COALESCE(saves.save_count, 0) as save_count
       FROM recipes r
       LEFT JOIN users u ON r.chef_id = u.id
-      LEFT JOIN likes l ON r.id = l.recipe_id
+      LEFT JOIN (
+        SELECT cr.recipe_id, COUNT(DISTINCT rc.user_id) AS save_count
+        FROM collection_recipes cr
+        JOIN recipe_collections rc ON cr.collection_id = rc.id
+        WHERE cr.recipe_id IS NOT NULL
+        GROUP BY cr.recipe_id
+      ) saves ON saves.recipe_id = r.id
       WHERE r.status = 'approved' AND r.deleted_at IS NULL
-      GROUP BY r.id, u.name
-      ORDER BY like_count DESC, r.created_at DESC
+      ORDER BY save_count DESC, r.created_at DESC
       LIMIT $1
     `, [limit]);
 
@@ -605,7 +623,17 @@ router.get('/my', authenticate, requireRole(['chef', 'admin']), async (req, res)
     const pool = req.app.locals.pool;
 
     const result = await pool.query(
-      `SELECT r.*, u.name as chef_name
+      `SELECT r.*, 
+              u.name as chef_name,
+              COALESCE(
+                (
+                  SELECT COUNT(DISTINCT rc.user_id)
+                  FROM collection_recipes cr
+                  JOIN recipe_collections rc ON cr.collection_id = rc.id
+                  WHERE cr.recipe_id = r.id
+                ),
+                0
+              ) as save_count
        FROM recipes r
        JOIN users u ON r.chef_id = u.id
        WHERE r.chef_id = $1 AND r.deleted_at IS NULL
@@ -914,15 +942,18 @@ router.get('/:id', authenticateOptional, async (req, res) => {
       SELECT r.*, 
              u.name as chef_name,
              u.id as chef_id,
-             COUNT(DISTINCT l.id) FILTER (WHERE l.is_like = true) as likes,
-             COUNT(DISTINCT l.id) FILTER (WHERE l.is_like = false) as dislikes,
-             COUNT(DISTINCT c.id) as comment_count
+             COALESCE(
+               (
+                 SELECT COUNT(DISTINCT rc.user_id)
+                 FROM collection_recipes cr
+                 JOIN recipe_collections rc ON cr.collection_id = rc.id
+                 WHERE cr.recipe_id = r.id
+               ),
+               0
+             ) as save_count
       FROM recipes r
       LEFT JOIN users u ON r.chef_id = u.id
-      LEFT JOIN likes l ON r.id = l.recipe_id
-      LEFT JOIN comments c ON r.id = c.recipe_id
       WHERE r.id = $1 AND r.deleted_at IS NULL
-      GROUP BY r.id, u.name, u.id
     `, [id]);
 
     if (recipeResult.rows.length === 0) {

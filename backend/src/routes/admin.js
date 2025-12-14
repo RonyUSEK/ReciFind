@@ -1300,25 +1300,14 @@ router.get('/reports', authenticate, requireRole(['admin']), async (req, res) =>
              reporter.name as reporter_name,
              reporter.email as reporter_email,
              reviewer.name as reviewer_name,
-             CASE 
-               WHEN r.content_type = 'recipe' THEN rec.title
-               WHEN r.content_type = 'comment' THEN c.content
-             END as content_preview,
-             CASE
-               WHEN r.content_type = 'recipe' THEN rec.chef_id
-               WHEN r.content_type = 'comment' THEN c.user_id
-             END as content_author_id,
-             CASE
-               WHEN r.content_type = 'recipe' THEN chef.name
-               WHEN r.content_type = 'comment' THEN commenter.name
-             END as content_author_name
+             rec.title as content_preview,
+             rec.chef_id as content_author_id,
+             chef.name as content_author_name
       FROM reports r
       JOIN users reporter ON r.reporter_id = reporter.id
       LEFT JOIN users reviewer ON r.reviewed_by = reviewer.id
-      LEFT JOIN recipes rec ON r.content_type = 'recipe' AND r.content_id = rec.id
-      LEFT JOIN comments c ON r.content_type = 'comment' AND r.content_id = c.id
+      LEFT JOIN recipes rec ON r.content_id = rec.id
       LEFT JOIN users chef ON rec.chef_id = chef.id
-      LEFT JOIN users commenter ON c.user_id = commenter.id
       WHERE 1=1
     `;
 
@@ -1331,7 +1320,8 @@ router.get('/reports', authenticate, requireRole(['admin']), async (req, res) =>
       paramCount++;
     }
 
-    if (content_type && ['recipe', 'comment'].includes(content_type)) {
+    // Backwards-compatible query param: only allow recipe
+    if (content_type && content_type === 'recipe') {
       query += ` AND r.content_type = $${paramCount}`;
       params.push(content_type);
       paramCount++;
@@ -1361,8 +1351,7 @@ router.get('/reports/stats', authenticate, requireRole(['admin']), async (req, r
         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending,
         COUNT(CASE WHEN status = 'resolved' THEN 1 END) as resolved,
         COUNT(CASE WHEN status = 'dismissed' THEN 1 END) as dismissed,
-        COUNT(CASE WHEN content_type = 'recipe' THEN 1 END) as recipe_reports,
-        COUNT(CASE WHEN content_type = 'comment' THEN 1 END) as comment_reports
+        COUNT(CASE WHEN content_type = 'recipe' THEN 1 END) as recipe_reports
       FROM reports
     `);
 
@@ -1387,15 +1376,11 @@ router.get('/reports/:id', authenticate, requireRole(['admin']), async (req, res
               reporter.name as reporter_name,
               reporter.email as reporter_email,
               reviewer.name as reviewer_name,
-              CASE 
-                WHEN r.content_type = 'recipe' THEN row_to_json(rec.*)
-                WHEN r.content_type = 'comment' THEN row_to_json(c.*)
-              END as content_data
+              row_to_json(rec.*) as content_data
        FROM reports r
        JOIN users reporter ON r.reporter_id = reporter.id
        LEFT JOIN users reviewer ON r.reviewed_by = reviewer.id
-       LEFT JOIN recipes rec ON r.content_type = 'recipe' AND r.content_id = rec.id
-       LEFT JOIN comments c ON r.content_type = 'comment' AND r.content_id = c.id
+       LEFT JOIN recipes rec ON r.content_id = rec.id
        WHERE r.id = $1`,
       [id]
     );
@@ -1419,11 +1404,11 @@ router.put('/reports/:id/resolve', authenticate, requireRole(['admin']), async (
   try {
     const pool = req.app.locals.pool;
     const { id } = req.params;
-    const { action, admin_notes } = req.body; // action: 'dismiss', 'remove_content', 'warn_user', 'ban_user'
+    const { action, admin_notes } = req.body; // action: 'remove_content' | 'ban_user'
     const adminId = req.user.userId;
 
-    if (!action || !['dismiss', 'remove_content', 'warn_user', 'ban_user'].includes(action)) {
-      return res.status(400).json({ error: 'Invalid action. Must be: dismiss, remove_content, warn_user, or ban_user' });
+    if (!action || !['remove_content', 'ban_user'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action. Must be: remove_content or ban_user' });
     }
 
     // Get report details
@@ -1448,29 +1433,11 @@ router.put('/reports/:id/resolve', authenticate, requireRole(['admin']), async (
     try {
       // Perform action based on admin decision
       if (action === 'remove_content') {
-        if (report.content_type === 'recipe') {
-          await pool.query('DELETE FROM recipes WHERE id = $1', [report.content_id]);
-        } else if (report.content_type === 'comment') {
-          await pool.query('DELETE FROM comments WHERE id = $1', [report.content_id]);
-        }
-      } else if (action === 'warn_user') {
-        // Flag the content for user to see warning
-        if (report.content_type === 'comment') {
-          await pool.query(
-            'UPDATE comments SET is_flagged = true WHERE id = $1',
-            [report.content_id]
-          );
-        }
+        await pool.query('DELETE FROM recipes WHERE id = $1', [report.content_id]);
       } else if (action === 'ban_user') {
         // Get content author
-        let authorId;
-        if (report.content_type === 'recipe') {
-          const recipeResult = await pool.query('SELECT chef_id FROM recipes WHERE id = $1', [report.content_id]);
-          authorId = recipeResult.rows[0]?.chef_id;
-        } else if (report.content_type === 'comment') {
-          const commentResult = await pool.query('SELECT user_id FROM comments WHERE id = $1', [report.content_id]);
-          authorId = commentResult.rows[0]?.user_id;
-        }
+        const recipeResult = await pool.query('SELECT chef_id FROM recipes WHERE id = $1', [report.content_id]);
+        const authorId = recipeResult.rows[0]?.chef_id;
 
         if (authorId) {
           // For this demo, we'll just set role back to 'user' and zero reputation

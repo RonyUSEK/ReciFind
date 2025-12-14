@@ -45,7 +45,7 @@ RUN echo "PS1='\[\033[01;33m\][fullstack-dev] \[\033[01;32m\]\u@\h\[\033[00m\]:\
 
 # Add helpful aliases for development
 RUN echo "alias start-backend='cd /workspace/backend && npm run dev'" >> /home/node/.bashrc && \
-    echo "alias start-frontend='cd /workspace/frontend && npm run dev'" >> /home/node/.bashrc && \
+    echo "alias start-frontend='cd /workspace/frontend && npm start'" >> /home/node/.bashrc && \
     echo "alias start-dev='start-dev'" >> /home/node/.bashrc && \
     echo "alias db-check='check-db'" >> /home/node/.bashrc && \
     echo "export DATABASE_URL='postgresql://user:pass@postgres:5432/mydb'" >> /home/node/.bashrc && \
@@ -56,7 +56,7 @@ RUN echo "alias start-backend='cd /workspace/backend && npm run dev'" >> /home/n
     echo "echo 'Services:'" >> /home/node/.bashrc && \
     echo "echo '  - Frontend: http://localhost:3000'" >> /home/node/.bashrc && \
     echo "echo '  - Backend:  http://localhost:5000'" >> /home/node/.bashrc && \
-    echo "echo '  - Database: localhost:5432'" >> /home/node/.bashrc && \
+    echo "echo '  - Database: postgres:5432'" >> /home/node/.bashrc && \
     echo "echo ''" >> /home/node/.bashrc && \
     echo "echo 'Quick Commands:'" >> /home/node/.bashrc && \
     echo "echo '  start-dev      - Launch BOTH backend and frontend'" >> /home/node/.bashrc && \

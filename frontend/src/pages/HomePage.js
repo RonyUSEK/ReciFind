@@ -95,7 +95,7 @@ const RecipeCard = React.memo(({ recipe, onClick }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
   const totalTime = (recipe.prep_time || 0) + (recipe.cook_time || 0);
   const imageUrl = resolveImageUrl(recipe.image_url) || recipe.imageUrl || 'https://placehold.co/600x400/87CEEB/ffffff?text=Recipe';
-  const likeCount = recipe.like_count || recipe.likes || 0;
+  const saveCount = recipe.save_count || 0;
   
   return (
     <div 
@@ -120,11 +120,11 @@ const RecipeCard = React.memo(({ recipe, onClick }) => {
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">by {recipe.chef_name}</p>
         )}
         
-        {likeCount > 0 && (
+        {saveCount > 0 && (
           <div className="flex items-center text-yellow-500 mb-2">
             <StarIcon />
             <span className="ml-1 text-sm text-gray-600 dark:text-gray-400 font-semibold">
-              {likeCount} {likeCount === 1 ? 'like' : 'likes'}
+              {saveCount} {saveCount === 1 ? 'save' : 'saves'}
             </span>
           </div>
         )}

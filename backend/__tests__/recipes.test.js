@@ -313,25 +313,25 @@ describe('Recipe Search API', () => {
       expect(response.body.length).toBeLessThanOrEqual(3);
     });
 
-    test('should include like count', async () => {
+    test('should include save count', async () => {
       const response = await request(app)
         .get('/api/recipes/popular?limit=5')
         .expect(200);
       
       if (response.body.length > 0) {
-        expect(response.body[0]).toHaveProperty('like_count');
+        expect(response.body[0]).toHaveProperty('save_count');
       }
     });
 
-    test('should be sorted by likes descending', async () => {
+    test('should be sorted by saves descending', async () => {
       const response = await request(app)
         .get('/api/recipes/popular?limit=10')
         .expect(200);
       
-      // check that likes are in descending order
+      // check that saves are in descending order
       for (let i = 0; i < response.body.length - 1; i++) {
-        const current = parseInt(response.body[i].like_count) || 0;
-        const next = parseInt(response.body[i + 1].like_count) || 0;
+        const current = parseInt(response.body[i].save_count) || 0;
+        const next = parseInt(response.body[i + 1].save_count) || 0;
         expect(current).toBeGreaterThanOrEqual(next);
       }
     });
@@ -413,10 +413,8 @@ describe('Recipe Detail API', () => {
       expect(response.body).toHaveProperty('difficulty');
       expect(response.body).toHaveProperty('cuisine');
       
-      // Check interaction counts
-      expect(response.body).toHaveProperty('likes');
-      expect(response.body).toHaveProperty('dislikes');
-      expect(response.body).toHaveProperty('comment_count');
+      // Check popularity count
+      expect(response.body).toHaveProperty('save_count');
       
       // Check ingredients array exists
       expect(response.body).toHaveProperty('ingredients');
@@ -456,7 +454,7 @@ describe('Recipe Detail API', () => {
       }
     });
     
-    test('should return proper like and dislike counts', async () => {
+    test('should return proper save count', async () => {
       const searchResponse = await request(app)
         .get('/api/recipes/search?limit=1')
         .expect(200);
@@ -467,14 +465,10 @@ describe('Recipe Detail API', () => {
         .get(`/api/recipes/${recipeId}`)
         .expect(200);
       
-      expect(typeof response.body.likes).toBe('string'); // PostgreSQL COUNT returns string
-      expect(typeof response.body.dislikes).toBe('string');
-      expect(typeof response.body.comment_count).toBe('string');
+      expect(typeof response.body.save_count).toBe('string'); // PostgreSQL COUNT returns string
       
       // Should be parseable as numbers
-      expect(parseInt(response.body.likes)).toBeGreaterThanOrEqual(0);
-      expect(parseInt(response.body.dislikes)).toBeGreaterThanOrEqual(0);
-      expect(parseInt(response.body.comment_count)).toBeGreaterThanOrEqual(0);
+      expect(parseInt(response.body.save_count)).toBeGreaterThanOrEqual(0);
     });
     
     test('should only return approved recipes', async () => {

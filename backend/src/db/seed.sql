@@ -3,7 +3,7 @@
 -- Created: November 19, 2025
 
 -- Clear existing data (in correct order due to foreign keys)
-TRUNCATE TABLE collection_recipes, recipe_collections, chat_sessions, reports, comments, likes, favorites, recipe_approvals, recipe_pending_ingredients, ingredient_requests, recipe_ingredients, ingredients, recipes, chef_applications, users RESTART IDENTITY CASCADE;
+TRUNCATE TABLE collection_recipes, recipe_collections, chat_sessions, reports, recipe_approvals, recipe_pending_ingredients, ingredient_requests, recipe_ingredients, ingredients, recipes, chef_applications, users RESTART IDENTITY CASCADE;
 
 -- ============================================
 -- USERS (3 per role = 9 total)
@@ -300,78 +300,14 @@ INSERT INTO recipe_approvals (recipe_id, admin_id, status, feedback) VALUES
 (8, 9, 'rejected', 'Instructions are too brief. Please provide more detailed steps, specific measurements, and cooking temperatures. Also include prep work like what vegetables to use.');
 
 -- ============================================
--- FAVORITES (users favoriting recipes)
--- ============================================
-
-INSERT INTO favorites (user_id, recipe_id) VALUES
--- John (user 1) favorites
-(1, 1), -- Carbonara
-(1, 3), -- Teriyaki Salmon
-(1, 9), -- Shrimp Pasta
--- Sarah (user 2) favorites
-(2, 10), -- Spinach Mushroom Pasta
-(2, 11), -- Grilled Chicken Salad
-(2, 12), -- Avocado Toast
--- Mike (user 3) favorites
-(3, 4), -- Kung Pao Chicken
-(3, 1), -- Carbonara
--- Chef Maria favorites
-(4, 3), -- Teriyaki Salmon
-(4, 5); -- Cookies
-
--- ============================================
--- LIKES (users liking/disliking recipes)
--- ============================================
-
-INSERT INTO likes (user_id, recipe_id, is_like) VALUES
--- Likes for Recipe 1 (Carbonara)
-(1, 1, true),
-(2, 1, true),
-(3, 1, true),
-(4, 1, true),
--- Likes for Recipe 3 (Teriyaki Salmon)
-(1, 3, true),
-(2, 3, true),
-(4, 3, true),
--- Mixed likes/dislikes for Recipe 4 (Kung Pao - spicy!)
-(1, 4, false), -- too spicy for John
-(3, 4, true),
--- Likes for Recipe 5 (Cookies)
-(1, 5, true),
-(2, 5, true),
-(3, 5, true),
--- Likes for Recipe 10 (Vegetarian)
-(2, 10, true),
-(4, 10, true),
--- Likes for Recipe 11 (Healthy Salad)
-(2, 11, true),
-(1, 11, true);
-
--- ============================================
--- COMMENTS (user comments on recipes)
--- ============================================
-
-INSERT INTO comments (recipe_id, user_id, content) VALUES
-(1, 1, 'Absolutely delicious! Made this for dinner tonight and my family loved it. The creamy sauce was perfect!'),
-(1, 2, 'Great recipe! I added some peas for extra vegetables and it turned out amazing.'),
-(3, 1, 'This is now my go-to salmon recipe. The teriyaki glaze is incredible!'),
-(3, 3, 'Easy to follow instructions. Even as a beginner, I nailed this on the first try.'),
-(5, 2, 'Best chocolate chip cookies ever! Soft and chewy, just how I like them.'),
-(5, 1, 'Made these for a party and everyone asked for the recipe. Thank you Chef Emma!'),
-(10, 2, 'Perfect vegetarian option! The creamy sauce is so good, I didn''t miss the meat at all.'),
-(11, 2, 'Healthy and delicious! This is my new favorite lunch. The balsamic dressing is perfect.'),
-(4, 1, 'Warning: This is SPICY! But if you like heat, it''s absolutely delicious. Adjust the chili to your preference.');
-
--- ============================================
 -- REPORTS (flagged content - for demonstration)
 -- ============================================
 
 INSERT INTO reports (content_type, content_id, reporter_id, reason, description, status) VALUES
-('comment', 9, 2, 'inappropriate', 'Comment contains misleading warning about spice level', 'pending'),
 ('recipe', 8, 1, 'incorrect', 'Instructions are incomplete and could lead to food safety issues', 'resolved');
 
 -- Mark the resolved report
-UPDATE reports SET reviewed_by = 9, resolved_at = CURRENT_TIMESTAMP WHERE id = 2;
+UPDATE reports SET reviewed_by = 9, resolved_at = CURRENT_TIMESTAMP WHERE id = 1;
 
 -- ============================================
 -- CHAT SESSIONS (sample AI chat history)

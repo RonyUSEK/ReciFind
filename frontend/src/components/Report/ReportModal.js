@@ -3,23 +3,23 @@ import { API_BASE_URL } from '../../utils/api';
 
 /**
  * ReportModal Component
- * Reusable modal for reporting recipes or comments
+ * Reusable modal for reporting recipes
  * 
  * Props:
  * - show: boolean - whether to display modal
- * - contentType: 'recipe' | 'comment' - type of content being reported
+ * - contentType: 'recipe' (kept for backwards compatibility)
  * - contentId: number - ID of content being reported
  * - contentTitle: string - title/preview of content (for display)
  * - onClose: function - callback when modal closes
  * - onSuccess: function - callback after successful report submission
  */
-function ReportModal({ show, contentType, contentId, contentTitle, onClose, onSuccess }) {
+function ReportModal({ show, contentType = 'recipe', contentId, contentTitle, onClose, onSuccess }) {
   const [reason, setReason] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Reason options based on content type
+  // Reason options (recipe-only)
   const recipeReasons = [
     { value: 'spam', label: 'Spam or Misleading' },
     { value: 'inappropriate', label: 'Inappropriate Content' },
@@ -28,15 +28,7 @@ function ReportModal({ show, contentType, contentId, contentTitle, onClose, onSu
     { value: 'other', label: 'Other' }
   ];
 
-  const commentReasons = [
-    { value: 'spam', label: 'Spam' },
-    { value: 'harassment', label: 'Harassment or Bullying' },
-    { value: 'inappropriate', label: 'Inappropriate Language' },
-    { value: 'offensive', label: 'Offensive Content' },
-    { value: 'other', label: 'Other' }
-  ];
-
-  const reasons = contentType === 'recipe' ? recipeReasons : commentReasons;
+  const reasons = recipeReasons;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -58,7 +50,7 @@ function ReportModal({ show, contentType, contentId, contentTitle, onClose, onSu
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          content_type: contentType,
+          content_type: 'recipe',
           content_id: contentId,
           reason,
           description: description.trim() || null
@@ -100,7 +92,7 @@ function ReportModal({ show, contentType, contentId, contentTitle, onClose, onSu
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-              Report {contentType === 'recipe' ? 'Recipe' : 'Comment'}
+              Report Recipe
             </h2>
             <button
               onClick={handleClose}

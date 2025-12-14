@@ -6,9 +6,6 @@ DROP TABLE IF EXISTS collection_recipes CASCADE;
 DROP TABLE IF EXISTS recipe_collections CASCADE;
 DROP TABLE IF EXISTS chat_sessions CASCADE;
 DROP TABLE IF EXISTS reports CASCADE;
-DROP TABLE IF EXISTS comments CASCADE;
-DROP TABLE IF EXISTS likes CASCADE;
-DROP TABLE IF EXISTS favorites CASCADE;
 DROP TABLE IF EXISTS recipe_approvals CASCADE;
 DROP TABLE IF EXISTS recipe_pending_ingredients CASCADE;
 DROP TABLE IF EXISTS ingredient_requests CASCADE;
@@ -166,55 +163,11 @@ CREATE TABLE recipe_approvals (
 CREATE INDEX idx_recipe_approvals_recipe_id ON recipe_approvals(recipe_id);
 CREATE INDEX idx_recipe_approvals_admin_id ON recipe_approvals(admin_id);
 
--- Favorites table
-CREATE TABLE favorites (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, recipe_id)
-);
-
--- Create indexes for favorites
-CREATE INDEX idx_favorites_user_id ON favorites(user_id);
-CREATE INDEX idx_favorites_recipe_id ON favorites(recipe_id);
-
--- Likes table (true = like, false = dislike)
-CREATE TABLE likes (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    is_like BOOLEAN NOT NULL, -- true = like, false = dislike
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, recipe_id)
-);
-
--- Create indexes for likes
-CREATE INDEX idx_likes_user_id ON likes(user_id);
-CREATE INDEX idx_likes_recipe_id ON likes(recipe_id);
-CREATE INDEX idx_likes_is_like ON likes(is_like);
-
--- Comments table
-CREATE TABLE comments (
-    id SERIAL PRIMARY KEY,
-    recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    content TEXT NOT NULL,
-    is_flagged BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create indexes for comments
-CREATE INDEX idx_comments_recipe_id ON comments(recipe_id);
-CREATE INDEX idx_comments_user_id ON comments(user_id);
-CREATE INDEX idx_comments_is_flagged ON comments(is_flagged);
-
 -- Reports table (for content moderation)
 CREATE TABLE reports (
     id SERIAL PRIMARY KEY,
-    content_type VARCHAR(20) NOT NULL CHECK (content_type IN ('recipe', 'comment')),
-    content_id INTEGER NOT NULL, -- ID of recipe or comment
+    content_type VARCHAR(20) NOT NULL CHECK (content_type IN ('recipe')),
+    content_id INTEGER NOT NULL, -- ID of recipe
     reporter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reason VARCHAR(50) NOT NULL, -- e.g., 'spam', 'inappropriate', 'incorrect', 'harassment'
     description TEXT,
@@ -320,9 +273,6 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_recipes_updated_at BEFORE UPDATE ON recipes
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_comments_updated_at BEFORE UPDATE ON comments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_chat_sessions_updated_at BEFORE UPDATE ON chat_sessions

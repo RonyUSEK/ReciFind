@@ -37,21 +37,21 @@ describe('ChefDashboard', () => {
       title: 'Approved Recipe',
       status: 'approved',
       created_at: '2024-01-01T00:00:00Z',
-      likes_count: 10,
+      save_count: 10,
     },
     {
       id: 2,
       title: 'Pending Recipe',
       status: 'pending',
       created_at: '2024-01-02T00:00:00Z',
-      likes_count: 0,
+      save_count: 0,
     },
     {
       id: 3,
       title: 'Rejected Recipe',
       status: 'rejected',
       created_at: '2024-01-03T00:00:00Z',
-      likes_count: 0,
+      save_count: 0,
     },
   ];
 

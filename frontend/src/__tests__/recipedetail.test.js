@@ -44,11 +44,8 @@ const mockRecipeData = {
   cuisine: 'Italian',
   spice_level: 'medium',
   calories: 450,
-  likes: '12',
-  dislikes: '2',
-  comment_count: '5',
+  save_count: '12',
   status: 'approved',
-  image_url: 'https://example.com/shrimp-pasta.jpg',
   instructions: [
     'Boil water in a large pot and cook pasta according to package directions',
     'While pasta cooks, heat olive oil in a large pan over medium heat',
@@ -188,7 +185,7 @@ describe('RecipeDetailPage', () => {
       expect(content).toMatch(/Boil water in a large pot/i);
     });
 
-    test('should display like and comment counts', async () => {
+    test('should display save count', async () => {
       api.get.mockResolvedValueOnce({ data: mockRecipeData });
 
       render(
@@ -199,7 +196,7 @@ describe('RecipeDetailPage', () => {
         </MemoryRouter>
       );
 
-      // Wait for likes to appear
+      // Wait for save count to appear
       await waitFor(() => {
         const content = document.body.textContent;
         expect(content).toMatch(/12/);
@@ -277,9 +274,7 @@ describe('RecipeDetailPage', () => {
         description: 'Test description',
         instructions: ['Step 1'],
         ingredients: [],
-        likes: '0',
-        dislikes: '0',
-        comment_count: '0',
+        save_count: '0',
         status: 'approved'
       };
 

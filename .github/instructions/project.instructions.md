@@ -54,9 +54,8 @@ applyTo: '**'
 - Browse and search recipes
 - View recipe details
 - Generate AI recipes (limited to 10/day)
-- Favorite recipes
-- Like/dislike recipes
-- Comment on recipes
+- Save recipes to a personal "Saved" collection
+- Create and manage recipe collections
 - Report inappropriate content
 - Chat with AI cooking assistant (30 messages/hour)
 - Create and manage profile
@@ -92,9 +91,9 @@ applyTo: '**'
 1. **User Authentication** - Register, login, JWT-based auth
 2. **Recipe Search & Filtering** - PRIMARY FEATURE (ingredient matching, dietary filters, cuisine, time, calories)
 3. **Chef Submission System** - Submit recipes → admin approval workflow
-4. **Content Moderation** - Report system for recipes/comments
-5. **User Interactions** - Favorites, likes/dislikes, comments
-6. **User Profiles** - Bio, stats, favorites list
+4. **Content Moderation** - Report system for recipes
+5. **User Interactions** - Saved recipes + collections
+6. **User Profiles** - Bio, stats, saved/collections
 7. **Chef Reputation System** - Track approvals, verified badge
 
 ### SHOULD HAVE (Enhancement)
@@ -121,9 +120,8 @@ applyTo: '**'
 - **ingredients** - name, category
 - **recipe_ingredients** - recipe_id, ingredient_id, quantity, unit
 - **recipe_approvals** - recipe_id, admin_id, status, feedback
-- **favorites** - user_id, recipe_id
-- **likes** - user_id, recipe_id, is_like (boolean)
-- **comments** - recipe_id, user_id, content, is_flagged
+- **recipe_collections** - user_id, name, description, is_public
+- **collection_recipes** - collection_id, recipe_id OR (ai_key + ai_recipe)
 - **reports** - content_type, content_id, reporter_id, reason, status
 - **chat_sessions** - user_id, messages (JSONB)
 
@@ -150,8 +148,19 @@ applyTo: '**'
 - `DELETE /:id` - Delete own recipe (chef/admin only)
 - `GET /my` - Get current user's recipes (chef only)
 - `GET /featured` - Get featured recipe
-- `GET /popular` - Get most liked recipes
+- `GET /popular` - Get most saved recipes
 - `POST /generate` - AI generate recipe (optional, auth required)
+
+### Collection Routes (`/api/collections`)
+- `GET /my` - List current user's collections (includes "Saved")
+- `POST /` - Create a collection
+- `PATCH /:id` - Update a collection
+- `DELETE /:id` - Delete a collection
+- `GET /:id/items` - List collection items
+- `POST /:id/items` - Add a recipe to a collection
+- `DELETE /:id/items/:itemId` - Remove an item from a collection
+- `GET /saved/status` - Check if a recipe (or AI key) is in "Saved"
+- `POST /saved/toggle` - Toggle a recipe (or AI key) in "Saved"
 
 ### Admin Routes (`/api/admin`)
 - `GET /recipes/pending` - List pending recipes
@@ -165,12 +174,7 @@ applyTo: '**'
 - `PUT /reports/:id/resolve` - Resolve report
 
 ### Interaction Routes
-- `POST /api/recipes/:id/favorite` - Toggle favorite
-- `GET /api/users/me/favorites` - Get user's favorites
-- `POST /api/recipes/:id/like` - Like/dislike recipe
-- `POST /api/recipes/:id/comments` - Add comment
-- `GET /api/recipes/:id/comments` - Get recipe comments
-- `DELETE /api/comments/:id` - Delete own comment
+- (Handled via `/api/collections` endpoints)
 
 ### Report Routes (`/api/reports`)
 - `POST /` - Submit report (auth required)
@@ -188,7 +192,7 @@ applyTo: '**'
 - `/register` - Register page
 - `/search` - Search results with filters (PRIMARY PAGE)
 - `/recipe/:id` - Recipe detail page
-- `/dashboard` - User dashboard (favorites, profile)
+- `/dashboard` - User dashboard (saved/collections, profile)
 - `/chef/dashboard` - Chef dashboard (my recipes, stats)
 - `/admin/dashboard` - Admin panel (approvals, reports, users)
 - `/profile/:id` - User public profile
@@ -209,15 +213,16 @@ applyTo: '**'
 Example workflow:
 ```javascript
 // 1. Write test first
-test('user can favorite a recipe', async () => {
+test('user can save a recipe', async () => {
   const response = await request(app)
-    .post('/api/recipes/1/favorite')
+    .post('/api/collections/saved/toggle')
+    .send({ recipeId: 1 })
     .set('Authorization', `Bearer ${token}`);
   expect(response.status).toBe(200);
 });
 
 // 2. Implement feature
-router.post('/recipes/:id/favorite', authenticateToken, async (req, res) => {
+router.post('/collections/saved/toggle', authenticateToken, async (req, res) => {
   // Implementation
 });
 
@@ -292,12 +297,12 @@ frontend/src/
 
 **API Routes:**
 - Generally follow RESTful conventions: GET, POST, PUT, DELETE
-- Prefer plural nouns: `/recipes`, `/users`, `/comments`
+- Prefer plural nouns: `/recipes`, `/users`, `/collections`
 - Consider kebab-case for multi-word: `/pending-recipes`
 
 **Database:**
 - Currently using snake_case for columns: `user_id`, `created_at`, `is_featured`
-- Plural table names: `users`, `recipes`, `comments`
+- Plural table names: `users`, `recipes`, `recipe_collections`
 
 *Feel free to deviate from these conventions if there's a good reason or better alternative for a specific case.*
 
@@ -327,7 +332,7 @@ frontend/src/
    - Login attempts: ~5 per 15 minutes
    - AI generation: ~10 per day per user
    - Chat messages: ~30 per hour per user
-   - Comment posting: ~10 per minute
+  - Saving (collection updates): ~30 per hour
    - Recipe creation: ~5 per hour (chef)
 
 5. **Security Headers:**
@@ -408,8 +413,8 @@ router.get('/recipes/:id', async (req, res) => {
 
 5. **Empty States:**
    - "No recipes found" with suggestions
-   - "No favorites yet" with CTA
-   - "No comments" encouraging first comment
+  - "No saved recipes yet" with CTA
+  - "No collections yet" with CTA
 
 ## Important Implementation Notes
 
@@ -475,7 +480,7 @@ if (chef.approvedRecipesCount < 3 || !chef.isVerified) {
 3. Search and filtering logic
 4. Admin approval workflow
 5. Report system
-6. User interactions (favorites, likes, comments)
+6. User interactions (saved/collections)
 
 ### Example Test Structure
 ```javascript
@@ -558,7 +563,7 @@ A successful FYP submission should have:
 - ✅ Functional recipe search with multiple filters
 - ✅ Chef can submit, admin can approve
 - ✅ Report system working
-- ✅ User can favorite, like, comment
+- ✅ User can save recipes to collections
 - ✅ 60%+ test coverage
 - ✅ Mobile responsive
 - ✅ Dark mode working

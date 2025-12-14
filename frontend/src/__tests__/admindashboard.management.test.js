@@ -113,6 +113,11 @@ describe('AdminDashboard management', () => {
         email: 'alice.updated@example.com',
       });
     });
+
+    await waitFor(() => {
+      expect(screen.queryByText('Edit User')).not.toBeInTheDocument();
+      expect(screen.getByText('Alice Updated')).toBeInTheDocument();
+    });
   });
 
   test('can edit a recipe (ingredients/instructions/chef)', async () => {
@@ -209,6 +214,12 @@ describe('AdminDashboard management', () => {
       expect(Array.isArray(payload.ingredients)).toBe(true);
       expect(payload.ingredients.some((i) => i.name === 'salt')).toBe(true);
       expect(payload.ingredients.some((i) => i.name === 'pepper')).toBe(true);
+    });
+
+    await waitFor(() => {
+      const allRecipesCalls = api.get.mock.calls.filter((c) => c[0] === '/api/admin/recipes');
+      expect(allRecipesCalls.length).toBeGreaterThanOrEqual(2);
+      expect(screen.queryByText('Edit Recipe')).not.toBeInTheDocument();
     });
   });
 });

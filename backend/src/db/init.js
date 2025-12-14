@@ -110,9 +110,6 @@ async function initializeDatabase(silent = false) {
         { name: 'Users', query: 'SELECT COUNT(*) as count FROM users' },
         { name: 'Recipes', query: 'SELECT COUNT(*) as count FROM recipes' },
         { name: 'Ingredients', query: 'SELECT COUNT(*) as count FROM ingredients' },
-        { name: 'Favorites', query: 'SELECT COUNT(*) as count FROM favorites' },
-        { name: 'Likes', query: 'SELECT COUNT(*) as count FROM likes' },
-        { name: 'Comments', query: 'SELECT COUNT(*) as count FROM comments' },
       ];
       
       log('\n📊 Database Statistics:', 'cyan');

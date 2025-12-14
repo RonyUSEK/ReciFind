@@ -51,18 +51,31 @@ beforeEach(() => {
 // This warning is from React Testing Library's internal implementation
 // and will be fixed in a future version of RTL
 const originalError = console.error;
+const originalWarn = console.warn;
 beforeAll(() => {
   console.error = (...args) => {
     if (
       typeof args[0] === 'string' &&
-      args[0].includes('ReactDOMTestUtils.act')
+      (args[0].includes('ReactDOMTestUtils.act') ||
+        args[0].includes('not wrapped in act'))
     ) {
       return;
     }
     originalError.call(console, ...args);
   };
+
+  console.warn = (...args) => {
+    if (
+      typeof args[0] === 'string' &&
+      args[0].includes('React Router Future Flag Warning')
+    ) {
+      return;
+    }
+    originalWarn.call(console, ...args);
+  };
 });
 
 afterAll(() => {
   console.error = originalError;
+  console.warn = originalWarn;
 });

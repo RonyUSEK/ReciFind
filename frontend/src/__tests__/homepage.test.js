@@ -110,7 +110,7 @@ describe('HomePage Recipe Discovery', () => {
           title: 'Chicken Curry',
           description: 'Delicious curry',
           chef_name: 'Chef John',
-          like_count: 50,
+          save_count: 50,
           status: 'approved'
         },
         {
@@ -118,7 +118,7 @@ describe('HomePage Recipe Discovery', () => {
           title: 'Pasta Carbonara',
           description: 'Classic Italian pasta',
           chef_name: 'Chef Anna',
-          like_count: 45,
+          save_count: 45,
           status: 'approved'
         }
       ];

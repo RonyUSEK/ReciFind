@@ -5,17 +5,17 @@ import Toast from '../Common/Toast';
 
 /**
  * ReportButton Component
- * Reusable button to report content (recipes or comments)
+ * Reusable button to report recipes
  * 
  * Props:
- * - contentType: 'recipe' | 'comment'
+ * - contentType: 'recipe' (kept for backwards compatibility)
  * - contentId: number
  * - contentTitle: string - for display in modal
  * - variant: 'icon' | 'text' | 'full' - button style
  * - className: string - additional CSS classes
  */
 function ReportButton({ 
-  contentType, 
+  contentType = 'recipe', 
   contentId, 
   contentTitle, 
   variant = 'icon',

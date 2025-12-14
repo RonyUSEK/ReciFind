@@ -178,7 +178,7 @@ function ChefDashboard() {
                     Status
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Likes
+                    Saves
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Created
@@ -202,7 +202,7 @@ function ChefDashboard() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                      {recipe.likes_count || 0}
+                      {recipe.save_count || 0}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                       {new Date(recipe.created_at).toLocaleDateString()}
