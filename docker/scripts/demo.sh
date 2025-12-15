@@ -7,9 +7,16 @@ echo "========================================"
 echo ""
 
 # Check if docker is running
+if ! command -v docker > /dev/null 2>&1; then
+    echo "❌ Error: Docker CLI not found"
+    echo "This script needs Docker on the machine you're running it on."
+    echo "If you're inside a Dev Container, run this script on your host OS (where Docker Desktop/Engine is installed), or configure docker-socket passthrough."
+    exit 1
+fi
+
 if ! docker info > /dev/null 2>&1; then
-    echo "❌ Error: Docker is not running"
-    echo "Please start Docker and try again"
+    echo "❌ Error: Docker is installed but not running (daemon unavailable)"
+    echo "Start Docker and try again."
     exit 1
 fi
 

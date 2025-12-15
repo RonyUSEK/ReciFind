@@ -8,14 +8,37 @@ const { Client } = require('pg');
 const fs = require('fs');
 const path = require('path');
 
+function getDbConfigFromDatabaseUrl(databaseUrl) {
+  try {
+    const url = new URL(databaseUrl);
+
+    if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
+      return null;
+    }
+
+    return {
+      host: url.hostname,
+      port: url.port ? parseInt(url.port, 10) : 5432,
+      database: url.pathname ? url.pathname.replace(/^\//, '') : undefined,
+      user: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || ''),
+      ssl: url.searchParams.get('sslmode') === 'require' ? { rejectUnauthorized: false } : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Database configuration from environment or defaults
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'recifind',
-  user: process.env.DB_USER || 'recifind_user',
-  password: process.env.DB_PASSWORD || 'recifind_password',
-};
+const dbConfig =
+  getDbConfigFromDatabaseUrl(process.env.DATABASE_URL) ||
+  {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'recifind',
+    user: process.env.DB_USER || 'recifind_user',
+    password: process.env.DB_PASSWORD || 'recifind_password',
+  };
 
 // ANSI color codes for pretty output
 const colors = {

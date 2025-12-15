@@ -1,5 +1,6 @@
 -- Enable extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Drop tables if they exist (for clean reinitialization)
 DROP TABLE IF EXISTS collection_recipes CASCADE;

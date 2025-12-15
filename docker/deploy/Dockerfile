@@ -23,6 +23,9 @@ RUN cd frontend && npm run build
 # Stage 2: Production image - Only include built artifacts
 FROM node:18-slim
 
+ARG BUILD_FINGERPRINT
+LABEL com.recifind.build_fingerprint=$BUILD_FINGERPRINT
+
 WORKDIR /app
 
 # Copy backend and its dependencies from builder

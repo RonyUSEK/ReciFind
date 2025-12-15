@@ -11,7 +11,16 @@ echo "Image: ${IMAGE_NAME}:${IMAGE_TAG}"
 echo ""
 
 # Build production image with multi-stage build
+BUILD_FLAGS=()
+
+if [[ "${NO_CACHE:-}" == "1" ]]; then
+  echo "↪︎ NO_CACHE=1 set, building without cache"
+  BUILD_FLAGS+=(--no-cache)
+fi
+
 docker build \
+  "${BUILD_FLAGS[@]}" \
+  ${BUILD_FINGERPRINT:+--build-arg BUILD_FINGERPRINT=${BUILD_FINGERPRINT}} \
   -f docker/deploy/Dockerfile \
   -t ${IMAGE_NAME}:${IMAGE_TAG} \
   .
